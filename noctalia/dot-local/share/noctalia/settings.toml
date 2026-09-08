@@ -90,6 +90,11 @@ enabled = [ "noctalia/screen_recorder", "noctalia/wallhaven" ]
     location = "https://github.com/craig-miller/zentoo-noctalia-plugins"
     name = "zentoo-release"
 
+    [[plugins.source]]
+    kind = "path"
+    location = "~/src/zentoo-noctalia-plugins"
+    name = "zentoo-dev"
+
 [shell.launcher]
 categories = false
 compact = true
