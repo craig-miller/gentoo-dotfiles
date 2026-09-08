@@ -3,31 +3,11 @@
 [shell]
 offline_mode = false                # community palette + community templates fetch enabled
 
-[bar.default]
-margin_edge = 0
-thickness = 38
-reserve_space = true
-
-[wallpaper]
-directory = "~/img/wallpaper"
-
-[theme]
-mode = "dark"
-source = "wallpaper"
-wallpaper_scheme = "m3-tonal-spot"
-
-[theme.templates]
-enable_builtin_templates = true
-enable_community_templates = true
-builtin_ids = ["foot", "gtk3", "gtk4", "niri", "starship"]
-community_ids = ["yazi"]
-
-[idle.behavior.screen-off]
-timeout = 300
-command = "noctalia:dpms-off"
-resume_command = "noctalia:dpms-on"
-enabled = true
-
+[shell.launcher]
+categories = false
+compact = true
+show_app_actions = true
+show_icons = false
 
 [shell.launcher.dmenu.entry.icontheme]
 command = "for d in $HOME/.local/share/icons/*/ /usr/share/icons/*/; do [ -f \"$d/index.theme\" ] && basename \"$d\"; done | sort -u"
@@ -37,3 +17,145 @@ glyph = "palette"
 global = true
 exec = "fish -c 'icontheme {selection}'"
 
+[bar.default]
+margin_edge = 0
+thickness = 38
+reserve_space = true
+
+[brightness]
+enable_ddcutil = true
+minimum_brightness = 0.23999999463558197
+
+[calendar]
+enabled = true
+refresh_minutes = 5
+
+[plugins]
+enabled = ["noctalia/screen_recorder", "noctalia/wallhaven"]
+
+[[plugins.source]]
+kind = "git"
+location = "https://github.com/noctalia-dev/official-plugins"
+name = "official"
+
+[[plugins.source]]
+kind = "git"
+location = "https://github.com/noctalia-dev/community-plugins"
+name = "community"
+
+[[plugins.source]]
+kind = "git"
+location = "https://github.com/craig-miller/zentoo-noctalia-plugins"
+name = "zentoo-release"
+
+[[plugins.source]]
+kind = "path"
+location = "~/src/zentoo-noctalia-plugins"
+name = "zentoo-dev"
+
+[wallpaper]
+directory = "~/pics/wallpaper"
+
+[wallpaper.default]
+path = "~/pics/wallpaper/wallhaven-vpep35.png"
+
+[wallpaper.last]
+path = "~/pics/wallpaper/wallhaven-vpep35.png"
+
+[wallpaper.monitors.HDMI-A-1]
+path = "~/pics/wallpaper/wallhaven-vpep35.png"
+
+[wallpaper.monitors.eDP-1]
+path = "~/pics/wallpaper/wallhaven-vpep35.png"
+
+[theme]
+builtin = "Nord"
+mode = "dark"
+source = "builtin"
+wallpaper_scheme = "m3-tonal-spot"
+
+[theme.templates]
+enable_builtin_templates = true
+enable_community_templates = true
+builtin_ids = ["btop", "cava", "foot", "niri", "starship"]
+community_ids = ["yazi", "pi-agent", "neovim", "fastfetch", "zathura", "bat", "fzf"]
+
+[theme.templates.user.zentoo_gtk4]
+input_path = "~/src/zentoo-noctalia-plugins/gtk4/gtk4.css"
+output_path = "$XDG_CONFIG_HOME/gtk-4.0/noctalia.css"
+pre_hook = "fish ~/src/zentoo-noctalia-plugins/gtk4/backup.fish"
+post_hook = "fish ~/src/zentoo-noctalia-plugins/gtk4/apply.fish"
+hook_async = false
+
+[idle.behavior.screen-off]
+timeout = 300
+command = "noctalia:dpms-off"
+resume_command = "noctalia:dpms-on"
+enabled = true
+
+[lockscreen_widgets]
+enabled = false
+schema_version = 2
+widget_order = ["lockscreen-login-box@eDP-1", "lockscreen-login-box@HDMI-A-1"]
+
+[lockscreen_widgets.grid]
+cell_size = 16
+major_interval = 4
+visible = true
+
+[lockscreen_widgets.widget."lockscreen-login-box@HDMI-A-1"]
+box_height = 196.0
+box_width = 810.0
+cx = 1536.0
+cy = 1546.0
+output = "HDMI-A-1"
+placement_height = 1728.0
+placement_width = 3072.0
+rotation = 0.0
+type = "login_box"
+
+[lockscreen_widgets.widget."lockscreen-login-box@HDMI-A-1".settings]
+background_color = "surface_variant"
+background_opacity = 0.88
+background_radius = 12.0
+center_password_text = false
+input_opacity = 1.0
+input_radius = 6.0
+layout = "regular"
+show_caps_lock = true
+show_keyboard_layout = true
+show_login_button = true
+show_media = true
+show_session_buttons = true
+show_unlock_hint = true
+show_weather = true
+
+[lockscreen_widgets.widget."lockscreen-login-box@eDP-1"]
+box_height = 196.0
+box_width = 810.0
+cx = 864.0
+cy = 935.0
+output = "eDP-1"
+placement_height = 1117.0
+placement_width = 1728.0
+rotation = 0.0
+type = "login_box"
+
+[lockscreen_widgets.widget."lockscreen-login-box@eDP-1".settings]
+background_color = "surface_variant"
+background_opacity = 0.88
+background_radius = 12.0
+center_password_text = false
+input_opacity = 1.0
+input_radius = 6.0
+layout = "regular"
+show_caps_lock = true
+show_keyboard_layout = true
+show_login_button = true
+show_media = true
+show_session_buttons = true
+show_unlock_hint = true
+show_weather = true
+
+[widget.clock]
+font_weight = 700
