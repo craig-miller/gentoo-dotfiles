@@ -19,6 +19,9 @@
     --accent-fg-color: {{ colors.on_primary.default.hex }};
     --accent-color: oklab(from var(--accent-bg-color) var(--standalone-color-oklab));
 
+    /* Email-specific state colors. */
+    --email-unread-indicator-color: {{ colors.secondary.default.hex }};
+
     --destructive-bg-color: {{ colors.error.default.hex }};
     --destructive-fg-color: {{ colors.on_error.default.hex }};
     --destructive-color: oklab(from var(--destructive-bg-color) var(--standalone-color-oklab));
