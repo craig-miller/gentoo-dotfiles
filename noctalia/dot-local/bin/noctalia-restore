@@ -6,7 +6,7 @@ function fail
 end
 
 if test (count $argv) -ne 0
-    fail "Usage: noctalia-settings-restore"
+    fail "Usage: noctalia-restore"
 end
 
 if pgrep -x noctalia >/dev/null 2>&1

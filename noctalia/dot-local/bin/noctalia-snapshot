@@ -6,7 +6,7 @@ function fail
 end
 
 if test (count $argv) -ne 0
-    fail "Usage: noctalia-settings-snapshot"
+    fail "Usage: noctalia-snapshot"
 end
 
 set -l data_home "$HOME/.local/share"
