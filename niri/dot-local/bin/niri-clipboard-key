@@ -34,10 +34,19 @@ send_ctrl_shift_key() {
     exec wtype -m logo -M ctrl -M shift -k "$key" -m shift -m ctrl
 }
 
+copy_primary_to_clipboard() {
+    # Terminals expose selected text through the Wayland primary selection.
+    # Copy it directly instead of sending Ctrl+Shift+C, which makes foot show
+    # its transient in-terminal "copied" overlay.
+    text="$(wl-paste --primary --no-newline 2>/dev/null || true)"
+    [ -n "$text" ] || exit 0
+    printf '%s' "$text" | exec wl-copy
+}
+
 case "$action" in
     copy)
         if [ "$is_terminal" -eq 1 ]; then
-            send_ctrl_shift_key c
+            copy_primary_to_clipboard
         else
             send_ctrl_key c
         fi

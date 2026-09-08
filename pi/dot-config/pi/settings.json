@@ -1,12 +1,15 @@
 {
-  "lastChangelogVersion": "0.84.4",
-  "theme": "dark",
+  "lastChangelogVersion": "0.85.0",
+  "theme": "noctalia",
   "extensions": [
     "~/.pi/agent/extensions/short-model-footer.ts"
   ],
   "packages": [
     "npm:pi-web-access",
-    "npm:@0xkahi/pi-vim-keys"
+    "npm:@0xkahi/pi-vim-keys",
+    "git:github.com/otahontas/pi-coding-agent-catppuccin",
+    "npm:pi-mcp-adapter",
+    "npm:@siesing/pi-shortcuts"
   ],
   "hideThinkingBlock": false,
   "tuiMode": "regular"

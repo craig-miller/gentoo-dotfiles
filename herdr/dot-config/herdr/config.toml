@@ -32,3 +32,30 @@ delivery = "off"
 
 [ui]
 show_agent_labels_on_pane_borders = true
+
+[theme]
+# Use the outer terminal palette. This lets new standalone foot windows pick up
+# Noctalia's generated foot theme, and Herdr follows that palette instead of a
+# stale hard-coded copy.
+name = "terminal"
+
+[theme.custom]
+accent = "#7aa2f7"
+panel_bg = "reset"
+sidebar_bg = "reset"
+active_row_bg = "#2c3148"
+selection_bg = "#333954"
+surface0 = "#2c3148"
+surface1 = "#333954"
+surface_dim = "#12121a"
+overlay0 = "#5d6682"
+overlay1 = "#9aa5ce"
+text = "#c0caf5"
+subtext0 = "#9aa5ce"
+mauve = "#bb9af7"
+green = "#9ece6a"
+yellow = "#e0af68"
+red = "#f7768e"
+blue = "#7aa2f7"
+teal = "#7dcfff"
+peach = "#f79f76"

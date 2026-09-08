@@ -307,6 +307,11 @@ window-rule {
 }
 
 window-rule {
+    match app-id="zentoo-vnc"
+    open-floating true
+}
+
+window-rule {
     match app-id="audio-settings"
     open-floating true
     default-column-width { fixed 900; }
@@ -344,7 +349,7 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // ── Apps ──────────────────────────────────────────
-    Mod+Return { spawn "footclient"; }
+    Mod+Return { spawn "foot"; }
     Mod+Space  { spawn "noctalia" "msg" "panel-toggle" "launcher"; }
 
     // ── Window / session ──────────────────────────────

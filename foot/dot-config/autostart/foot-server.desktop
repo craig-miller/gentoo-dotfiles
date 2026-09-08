@@ -3,4 +3,5 @@ Type=Application
 Name=foot server
 Exec=foot --server
 NoDisplay=true
-X-GNOME-Autostart-enabled=true
+Hidden=true
+X-GNOME-Autostart-enabled=false

@@ -1,4 +1,5 @@
 [Desktop Entry]
+NoDisplay=true
 Type=Application
 Exec=footclient
 Icon=foot
@@ -6,6 +7,6 @@ Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=shell;prompt;command;commandline;
 
-Name=Terminal
+Name=Foot Client
 GenericName=Terminal
-Comment=A wayland native terminal emulator
+Comment=A wayland native terminal emulator (client)

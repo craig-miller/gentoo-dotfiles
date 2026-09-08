@@ -4,7 +4,39 @@
       "baseUrl": "https://api.fireworks.ai/inference",
       "api": "openai-completions",
       "apiKey": "!pass show api/fireworks/token"
+    },
+    "eir": {
+      "baseUrl": "http://eir.nextidea.studio:8000/v1",
+      "api": "openai-completions",
+      "apiKey": "1234",
+      "authHeader": true,
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsStore": false,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "Qwen3-14B-MLX-6bit",
+          "name": "Eir Qwen3 14B MLX 6-bit",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 32768,
+          "maxTokens": 2048,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "samplingParams": {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 0
+          }
+        }
+      ]
     }
   }
 }
-
