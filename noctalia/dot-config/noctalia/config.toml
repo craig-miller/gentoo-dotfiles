@@ -69,7 +69,7 @@ path = "~/pics/wallpaper/wallhaven-vpep35.png"
 path = "~/pics/wallpaper/wallhaven-vpep35.png"
 
 [theme]
-builtin = "Nord"
+builtin = "Tokyo-Night"
 mode = "dark"
 source = "builtin"
 wallpaper_scheme = "m3-tonal-spot"
@@ -77,15 +77,12 @@ wallpaper_scheme = "m3-tonal-spot"
 [theme.templates]
 enable_builtin_templates = true
 enable_community_templates = true
-builtin_ids = ["btop", "cava", "foot", "niri", "starship"]
+builtin_ids = ["btop", "cava", "foot", "gtk4", "niri", "starship"]
 community_ids = ["yazi", "pi-agent", "neovim", "fastfetch", "zathura", "bat", "fzf"]
 
-[theme.templates.user.zentoo_gtk4]
-input_path = "~/src/zentoo-noctalia-plugins/gtk4/gtk4.css"
-output_path = "$XDG_CONFIG_HOME/gtk-4.0/noctalia.css"
-pre_hook = "fish ~/src/zentoo-noctalia-plugins/gtk4/backup.fish"
-post_hook = "fish ~/src/zentoo-noctalia-plugins/gtk4/apply.fish"
-hook_async = false
+[theme.templates.user.email]
+input_path = "~/.config/noctalia/templates/email/email.css"
+output_path = "$XDG_CONFIG_HOME/email/theme.css"
 
 [idle.behavior.screen-off]
 timeout = 300

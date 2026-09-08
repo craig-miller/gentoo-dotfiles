@@ -102,12 +102,12 @@ show_app_actions = true
 show_icons = false
 
 [theme]
-builtin = "Nord"
+builtin = "Tokyo-Night"
 mode = "dark"
 source = "builtin"
 
     [theme.templates]
-    builtin_ids = [ "btop", "cava", "foot", "niri", "starship" ]
+    builtin_ids = [ "btop", "cava", "foot", "gtk4", "niri", "starship" ]
     community_ids = [ "pi-agent", "neovim", "fastfetch", "zathura", "bat", "fzf", "yazi" ]
 
 [wallpaper]
