@@ -1,0 +1,55 @@
+#!/usr/bin/env fish
+
+function fail
+    echo "Error: $argv" >&2
+    exit 1
+end
+
+if test (count $argv) -ne 0
+    fail "Usage: noctalia-settings-snapshot"
+end
+
+set -l data_home "$HOME/.local/share"
+set -l state_home "$HOME/.local/state"
+set -q XDG_DATA_HOME; and set data_home "$XDG_DATA_HOME"
+set -q XDG_STATE_HOME; and set state_home "$XDG_STATE_HOME"
+
+set -l baseline "$data_home/noctalia/settings.toml"
+set -l runtime "$state_home/noctalia/settings.toml"
+
+test -f "$runtime"; or fail "Live settings not found at $runtime"
+test -L "$baseline"; or fail "Expected the Stow-managed baseline to be a symlink: $baseline"
+
+set -l target (realpath "$baseline")
+test -n "$target"; or fail "Could not resolve the versioned baseline"
+
+if command -q python3
+    python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$runtime"
+    or fail "The live settings file is not valid TOML"
+end
+
+set -l timestamp (date -u +%Y%m%dT%H%M%SZ)
+set -l backup_dir "$state_home/noctalia/manual-backups/$timestamp-settings-snapshot"
+mkdir -p -m 700 "$backup_dir"; or fail "Could not create $backup_dir"
+cp -aL -- "$baseline" "$backup_dir/settings.toml"; or fail "Could not back up the previous baseline"
+
+set -l target_dir (dirname "$target")
+set -l temporary (mktemp "$target_dir/.settings.toml.snapshot.XXXXXX")
+or fail "Could not create a temporary baseline file"
+
+cp -- "$runtime" "$temporary"; or begin
+    rm -f "$temporary"
+    fail "Could not copy the live settings"
+end
+chmod 600 "$temporary"; or begin
+    rm -f "$temporary"
+    fail "Could not set permissions on the baseline"
+end
+mv -f -- "$temporary" "$target"; or begin
+    rm -f "$temporary"
+    fail "Could not update the versioned baseline"
+end
+
+printf 'Updated versioned Noctalia settings: %s\n' "$target"
+printf 'Previous baseline backup: %s\n' "$backup_dir"
+printf 'Review and commit the dotfiles change before relying on it.\n'

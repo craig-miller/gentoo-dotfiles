@@ -1,0 +1,61 @@
+#!/usr/bin/env fish
+
+function fail
+    echo "Error: $argv" >&2
+    exit 1
+end
+
+if test (count $argv) -ne 0
+    fail "Usage: noctalia-settings-restore"
+end
+
+if pgrep -x noctalia >/dev/null 2>&1
+    fail "Noctalia is running. Stop it before restoring its settings."
+end
+
+set -l data_home "$HOME/.local/share"
+set -l state_home "$HOME/.local/state"
+set -q XDG_DATA_HOME; and set data_home "$XDG_DATA_HOME"
+set -q XDG_STATE_HOME; and set state_home "$XDG_STATE_HOME"
+
+set -l baseline "$data_home/noctalia/settings.toml"
+set -l state_dir "$state_home/noctalia"
+set -l runtime "$state_dir/settings.toml"
+
+test -f "$baseline"; or fail "Versioned baseline not found at $baseline"
+
+if command -q python3
+    python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$baseline"
+    or fail "The versioned baseline is not valid TOML"
+end
+
+set -l timestamp (date -u +%Y%m%dT%H%M%SZ)
+set -l backup_dir "$state_dir/manual-backups/$timestamp-settings-restore"
+mkdir -p -m 700 "$backup_dir"; or fail "Could not create $backup_dir"
+
+if test -e "$runtime"
+    cp -a -- "$runtime" "$backup_dir/settings.toml"; or fail "Could not back up current settings"
+else
+    printf 'No previous settings.toml existed.\n' > "$backup_dir/README"
+end
+
+mkdir -p "$state_dir"; or fail "Could not create $state_dir"
+set -l temporary (mktemp "$state_dir/.settings.toml.restore.XXXXXX")
+or fail "Could not create a temporary settings file"
+
+cp -L -- "$baseline" "$temporary"; or begin
+    rm -f "$temporary"
+    fail "Could not copy the versioned baseline"
+end
+chmod 600 "$temporary"; or begin
+    rm -f "$temporary"
+    fail "Could not set permissions on the restored settings"
+end
+mv -f -- "$temporary" "$runtime"; or begin
+    rm -f "$temporary"
+    fail "Could not install the restored settings"
+end
+
+printf 'Restored Noctalia settings from %s\n' "$baseline"
+printf 'Previous settings backup: %s\n' "$backup_dir"
+printf 'Noctalia was not started or reloaded.\n'
