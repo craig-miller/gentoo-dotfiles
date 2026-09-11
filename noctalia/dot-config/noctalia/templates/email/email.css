@@ -87,6 +87,7 @@
     --popover-shade-color: alpha({{ colors.shadow.default.hex }}, 0.25);
 
     /* General separators, transitions, and overlay-scrollbar contrast. */
+    --border-color: {{ colors.outline_variant.default.hex }};
     --shade-color: alpha({{ colors.shadow.default.hex }}, 0.36);
     --scrollbar-outline-color: {{ colors.surface.default.hex }};
 }
