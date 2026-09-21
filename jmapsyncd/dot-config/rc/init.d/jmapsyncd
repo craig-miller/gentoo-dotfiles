@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+# Copyright 2026 Craig Miller
+# Distributed under the terms of the MIT License
+
+JMAPSYNCD_LOGFILE=${JMAPSYNCD_LOGFILE:-$HOME/.local/state/jmapsyncd/jmapsyncd.log}
+
+description="JMAP to Maildir synchronization daemon"
+
+supervisor=supervise-daemon
+command="/usr/bin/jmapsyncd"
+command_args="--log-level info daemon"
+output_log="${JMAPSYNCD_LOGFILE}"
+error_log="${JMAPSYNCD_LOGFILE}"
+
+depend() {
+	after net
+}
+
+start_pre() {
+	checkpath -q -d -o "${command_user:-$USER}" "$(dirname "${JMAPSYNCD_LOGFILE}")"
+}

@@ -1,0 +1,9 @@
+/home/craig/.local/state/jmapsyncd/jmapsyncd.log {
+    size 1M
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
