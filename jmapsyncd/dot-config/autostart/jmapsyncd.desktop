@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=jmapsyncd
-Exec=sh -c "mkdir -p /home/craig/.local/state/jmapsyncd; exec /usr/bin/jmapsyncd --log-level info daemon >> /home/craig/.local/state/jmapsyncd/jmapsyncd.log 2>&1"
-NoDisplay=true
-X-GNOME-Autostart-enabled=true

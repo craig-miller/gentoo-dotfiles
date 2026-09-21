@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+# Copyright 2026 Craig Miller
+# Distributed under the terms of the MIT License
+
+description="Retry queued Next Idea SMTP submissions (msmtpq)"
+
+supervisor=supervise-daemon
+command="/home/craig/.local/bin/msmtpq-nextidea-daemon"
+command_args=""
+
+# The wrapper writes its own state/log; direct output elsewhere is noise.
+output_log="/dev/null"
+error_log="${MSMTPQ_NEXTIDEA_ERROR_LOG:-/dev/null}"
+
+depend() {
+	after net
+}
+
+start_pre() {
+	checkpath -q -d -o "${command_user:-$USER}" "$HOME/.local/state/msmtpq"
+}
