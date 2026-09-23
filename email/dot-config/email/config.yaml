@@ -1,0 +1,143 @@
+# User config for Email. Managed by ~/dotfiles/email.
+
+profiles:
+  active: fastmail
+  ids:
+    - fastmail
+
+  fastmail:
+    displayName: craigmiller.io
+    emailAccounts:
+      - fastmail
+    contactSources:
+      - fastmail
+    defaults:
+      emailAccount: fastmail
+
+contacts:
+  sources:
+    daylite:
+      kind: vcardDirectory
+      displayName: Daylite
+      path: ~/.local/share/vdir/daylite/contacts/shared_list_addressbook
+    icloud:
+      kind: vcardDirectory
+      displayName: iCloud
+      path: ~/.local/share/vdir/icloud/contacts/card
+      photoAuthentication:
+        kind: httpBasic
+        usernameCommand: /usr/bin/pass show api/icloud/caldav/username
+        passwordCommand: /usr/bin/pass show api/icloud/caldav/app-password
+        allowedHosts:
+          - gateway.icloud.com
+    fastmail:
+      kind: vcardDirectory
+      displayName: Fastmail
+      path: ~/.local/share/vdir/fastmail/contacts/Default
+
+email:
+  pageSize: 200
+  overscan: 100
+
+  keybindings:
+    normal:
+      previous_message:
+        - k
+        - up
+      next_message:
+        - j
+        - down
+      first_message:
+        - gg
+      last_message:
+        - shift-g
+      next_mailbox:
+        - tab
+      previous_mailbox:
+        - shift-tab
+      open:
+        - return
+      close:
+        - escape
+      archive_message:
+        - e
+      trash_message:
+        - dd
+      spam_message:
+        - "!"
+      reply_message:
+        - r
+      forward_message:
+        - f
+      unsubscribe_message:
+        - shift-u
+      folder_select:
+        - shift-m
+      move_message:
+        - m
+      toggle_read:
+        - u
+
+  accounts:
+    google:
+      displayName: next idea
+      kind: notmuchCLI
+      maildirRoot: ~/mail/google
+      identity:
+        name: Craig Miller
+        address: craig@nextidea.io
+      sendmail:
+        kind: command
+        command: /usr/share/msmtp/msmtpq/msmtpq --account=nextidea
+      mailboxes:
+        inbox: INBOX
+        trash: "[Gmail]/Trash"
+        spam: "[Gmail]/Spam"
+      notmuch:
+        executable: notmuch
+
+    fastmail:
+      displayName: craigmiller.io
+      kind: notmuchCLI
+      maildirRoot: ~/mail/fastmail
+      mutation:
+        kind: jmapsyncctl
+        accountID: personal
+        executable: /usr/bin/jmapsyncctl
+        permanentDestroyPolicy: disabled
+      identity:
+        name: Craig Miller
+        address: craig@craigmiller.io
+      sendmail:
+        kind: command
+        command: /usr/bin/jmapqueue --account personal
+      mailboxes:
+        inbox: Inbox
+        archive: Archive
+        trash: Trash
+        spam: Spam
+      notmuch:
+        executable: notmuch
+
+    icloud:
+      displayName: iCloud
+      kind: notmuchCLI
+      maildirRoot: ~/mail/icloud
+      identity:
+        name: Craig Miller
+        address: next.idea@icloud.com
+      sendmail:
+        kind: command
+        command: /usr/share/msmtp/msmtpq/msmtpq --account=icloud
+      mailboxes:
+        inbox: INBOX
+        archive: Archive
+        trash: "Deleted Messages"
+        spam: Junk
+      notmuch:
+        executable: notmuch
+
+    localMaildirFallback:
+      displayName: Local Maildir Fallback
+      kind: maildir
+      maildirRoot: ~/mail/google
