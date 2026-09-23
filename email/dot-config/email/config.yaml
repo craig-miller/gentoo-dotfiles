@@ -62,10 +62,6 @@ email:
         - gg
       last_message:
         - shift-g
-      next_mailbox:
-        - tab
-      previous_mailbox:
-        - shift-tab
       open:
         - return
       close:
