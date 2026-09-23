@@ -11,8 +11,11 @@ profiles:
       - fastmail
     contactSources:
       - fastmail
+    taskSources:
+      - fastmail
     defaults:
       emailAccount: fastmail
+      taskSource: fastmail
 
 contacts:
   sources:
@@ -34,6 +37,14 @@ contacts:
       kind: vcardDirectory
       displayName: Fastmail
       path: ~/.local/share/vdir/fastmail/contacts/Default
+
+tasks:
+  sources:
+    fastmail:
+      kind: icalendarDirectory
+      displayName: Fastmail
+      path: ~/.local/share/vdir/fastmail/tasks/tasks
+      access: readOnly
 
 email:
   pageSize: 200
