@@ -11,10 +11,14 @@ profiles:
       - fastmail
     contactSources:
       - fastmail
+    calendarSources:
+      - fastmail-primary
+      - fastmail-holidays
     taskSources:
       - fastmail
     defaults:
       emailAccount: fastmail
+      calendarSource: fastmail-primary
       taskSource: fastmail
 
 contacts:
@@ -37,6 +41,19 @@ contacts:
       kind: vcardDirectory
       displayName: Fastmail
       path: ~/.local/share/vdir/fastmail/contacts/Default
+
+calendars:
+  sources:
+    fastmail-primary:
+      kind: icalendarDirectory
+      displayName: Fastmail
+      path: ~/.local/share/vdir/fastmail/calendars/134B7FA0-45C1-11F1-BC43-106590036B07
+      access: readOnly
+    fastmail-holidays:
+      kind: icalendarDirectory
+      displayName: Holidays
+      path: ~/.local/share/vdir/fastmail/calendars/9E0D7ACC-466A-11F1-8F33-4C429B0D7FC7
+      access: readOnly
 
 tasks:
   sources:
