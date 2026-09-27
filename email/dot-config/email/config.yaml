@@ -4,12 +4,12 @@ profiles:
   active: fastmail
   ids:
     - fastmail
+    - nextidea
 
   fastmail:
     displayName: craigmiller.io
     emailAccounts:
       - fastmail
-      - nextidea
     contactSources:
       - fastmail
     calendarSources:
@@ -21,6 +21,13 @@ profiles:
       emailAccount: fastmail
       calendarSource: fastmail-primary
       taskSource: fastmail
+
+  nextidea:
+    displayName: nextidea.io
+    emailAccounts:
+      - nextidea
+    defaults:
+      emailAccount: nextidea
 
 contacts:
   sources:
