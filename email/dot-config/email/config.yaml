@@ -35,6 +35,8 @@ profiles:
       - fastmail-nextidea-daylite-meeting-links
     taskSources:
       - fastmail-nextidea-todo
+      - daylite-inbox
+      - daylite-worklist
     defaults:
       emailAccount: nextidea
       calendarSource: fastmail-nextidea-work
@@ -99,6 +101,16 @@ calendars:
 
 tasks:
   sources:
+    daylite-inbox:
+      kind: icalendarDirectory
+      displayName: Daylite Inbox
+      path: ~/.local/share/vdir/daylite/tasks/task_inbox
+      access: readWrite
+    daylite-worklist:
+      kind: icalendarDirectory
+      displayName: Daylite Worklist
+      path: ~/.local/share/vdir/daylite/tasks/task_worklist
+      access: readWrite
     fastmail:
       kind: icalendarDirectory
       displayName: Fastmail
