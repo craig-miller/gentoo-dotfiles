@@ -9,6 +9,7 @@ profiles:
     displayName: craigmiller.io
     emailAccounts:
       - fastmail
+      - nextidea
     contactSources:
       - fastmail
     calendarSources:
@@ -103,22 +104,23 @@ email:
         - u
 
   accounts:
-    google:
-      displayName: next idea
-      kind: notmuchCLI
-      maildirRoot: ~/mail/google
-      identity:
-        name: Craig Miller
-        address: craig@nextidea.io
-      sendmail:
-        kind: command
-        command: /usr/share/msmtp/msmtpq/msmtpq --account=nextidea
-      mailboxes:
-        inbox: INBOX
-        trash: "[Gmail]/Trash"
-        spam: "[Gmail]/Spam"
-      notmuch:
-        executable: notmuch
+    # Temporary Google account retained for migration reference only.
+    # google:
+    #   displayName: next idea
+    #   kind: notmuchCLI
+    #   maildirRoot: ~/mail/google
+    #   identity:
+    #     name: Craig Miller
+    #     address: craig@nextidea.io
+    #   sendmail:
+    #     kind: command
+    #     command: /usr/share/msmtp/msmtpq/msmtpq --account=nextidea
+    #   mailboxes:
+    #     inbox: INBOX
+    #     trash: "[Gmail]/Trash"
+    #     spam: "[Gmail]/Spam"
+    #   notmuch:
+    #     executable: notmuch
 
     fastmail:
       displayName: craigmiller.io
@@ -135,6 +137,29 @@ email:
       sendmail:
         kind: command
         command: /usr/bin/jmapqueue --account personal
+      mailboxes:
+        inbox: Inbox
+        archive: Archive
+        trash: Trash
+        spam: Spam
+      notmuch:
+        executable: notmuch
+
+    nextidea:
+      displayName: nextidea.io
+      kind: notmuchCLI
+      maildirRoot: ~/mail/fastmail-nextidea
+      mutation:
+        kind: jmapsyncctl
+        accountID: nextidea
+        executable: /usr/bin/jmapsyncctl
+        permanentDestroyPolicy: disabled
+      identity:
+        name: Craig Miller
+        address: craig@nextidea.io
+      sendmail:
+        kind: command
+        command: /usr/bin/jmapqueue --account nextidea
       mailboxes:
         inbox: Inbox
         archive: Archive
