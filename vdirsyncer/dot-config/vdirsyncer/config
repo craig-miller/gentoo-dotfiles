@@ -1,0 +1,210 @@
+[general]
+status_path = "~/.local/state/vdirsyncer/status/"
+
+# Daylite contacts: CardDAV -> local .vcf vdir
+[pair daylite_contacts]
+a = "daylite_contacts_local"
+b = "daylite_contacts_remote"
+collections = ["from a", "from b"]
+metadata = ["displayname"]
+# Fail loudly on conflicts until the Daylite DAV projection is understood.
+# conflict_resolution = null
+
+[storage daylite_contacts_local]
+type = "filesystem"
+path = "~/.local/share/vdir/daylite/contacts/"
+fileext = ".vcf"
+
+[storage daylite_contacts_remote]
+type = "carddav"
+url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
+username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
+
+# Daylite calendars: CalDAV VEVENT -> local .ics vdir
+[pair daylite_calendars]
+a = "daylite_calendars_local"
+b = "daylite_calendars_remote"
+# Daylite exposes calendar + task collections from the same CalDAV endpoint.
+# Keep events and tasks separate locally by naming the collection explicitly.
+collections = ["calendar"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage daylite_calendars_local]
+type = "filesystem"
+path = "~/.local/share/vdir/daylite/calendars/"
+fileext = ".ics"
+
+[storage daylite_calendars_remote]
+type = "caldav"
+url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
+username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
+item_types = ["VEVENT"]
+
+# Daylite tasks/todos: CalDAV VTODO -> local .ics vdir
+[pair daylite_tasks]
+a = "daylite_tasks_local"
+b = "daylite_tasks_remote"
+# Daylite publishes task collections alongside normal calendars.
+# Sync only the task collections into the local tasks tree.
+collections = ["task_inbox", "task_worklist"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage daylite_tasks_local]
+type = "filesystem"
+path = "~/.local/share/vdir/daylite/tasks/"
+fileext = ".ics"
+
+[storage daylite_tasks_remote]
+type = "caldav"
+url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
+username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
+item_types = ["VTODO"]
+
+# iCloud contacts: CardDAV -> local .vcf vdir
+[pair icloud_contacts]
+a = "icloud_contacts_local"
+b = "icloud_contacts_remote"
+collections = ["from a", "from b"]
+metadata = ["displayname"]
+# conflict_resolution = null
+
+[storage icloud_contacts_local]
+type = "filesystem"
+path = "~/.local/share/vdir/icloud/contacts/"
+fileext = ".vcf"
+
+[storage icloud_contacts_remote]
+type = "carddav"
+url.fetch = ["command", "pass", "show", "api/icloud/caldav/contacts-url"]
+username.fetch = ["command", "pass", "show", "api/icloud/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/icloud/caldav/app-password"]
+
+# iCloud calendars: CalDAV -> local .ics vdir
+[pair icloud_calendars]
+a = "icloud_calendars_local"
+b = "icloud_calendars_remote"
+# 7CBA99A5-55BB-4EFE-982B-EB52A5AB393B = Events
+# B88F9E43-D93C-4A3C-999E-80F1408C25DD = Kind Vibes ⚠️ (stale/hidden/unknown; intentionally omitted)
+collections = ["7CBA99A5-55BB-4EFE-982B-EB52A5AB393B"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage icloud_calendars_local]
+type = "filesystem"
+path = "~/.local/share/vdir/icloud/calendars/"
+fileext = ".ics"
+
+[storage icloud_calendars_remote]
+type = "caldav"
+url.fetch = ["command", "pass", "show", "api/icloud/caldav/calendar-url"]
+username.fetch = ["command", "pass", "show", "api/icloud/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/icloud/caldav/app-password"]
+item_types = ["VEVENT"]
+
+# Fastmail contacts: CardDAV -> local .vcf vdir
+[pair fastmail_contacts]
+a = "fastmail_contacts_local"
+b = "fastmail_contacts_remote"
+collections = ["from a", "from b"]
+metadata = ["displayname"]
+# conflict_resolution = null
+
+[storage fastmail_contacts_local]
+type = "filesystem"
+path = "~/.local/share/vdir/fastmail/contacts/"
+fileext = ".vcf"
+
+[storage fastmail_contacts_remote]
+type = "carddav"
+url.fetch = ["command", "pass", "show", "api/fastmail/carddav/server-url"]
+username.fetch = ["command", "pass", "show", "api/fastmail/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/fastmail/caldav/app-password"]
+
+# Fastmail calendars: CalDAV VEVENT -> local .ics vdir
+[pair fastmail_calendars]
+a = "fastmail_calendars_local"
+b = "fastmail_calendars_remote"
+# Keep Fastmail's VTODO-only Tasks collection out of the VEVENT calendar pair.
+collections = ["134B7FA0-45C1-11F1-BC43-106590036B07", "9E0D7ACC-466A-11F1-8F33-4C429B0D7FC7"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage fastmail_calendars_local]
+type = "filesystem"
+path = "~/.local/share/vdir/fastmail/calendars/"
+fileext = ".ics"
+
+[storage fastmail_calendars_remote]
+type = "caldav"
+url.fetch = ["command", "pass", "show", "api/fastmail/caldav/server-url"]
+username.fetch = ["command", "pass", "show", "api/fastmail/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/fastmail/caldav/app-password"]
+item_types = ["VEVENT"]
+
+# Fastmail tasks: CalDAV VTODO -> local .ics vdir
+# 'tasks' collection created via MKCALENDAR (Fastmail exposes no tasks UI)
+[pair fastmail_tasks]
+a = "fastmail_tasks_local"
+b = "fastmail_tasks_remote"
+collections = ["tasks"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage fastmail_tasks_local]
+type = "filesystem"
+path = "~/.local/share/vdir/fastmail/tasks/"
+fileext = ".ics"
+
+[storage fastmail_tasks_remote]
+type = "caldav"
+url.fetch = ["command", "pass", "show", "api/fastmail/caldav/server-url"]
+username.fetch = ["command", "pass", "show", "api/fastmail/caldav/username"]
+password.fetch = ["command", "pass", "show", "api/fastmail/caldav/app-password"]
+item_types = ["VTODO"]
+
+# nextidea Fastmail contacts: discover every server-side address book.
+# "from b" keeps collection discovery provider-authoritative: discovery may
+# create local directories, but never creates remote address books.
+[pair fastmail_nextidea_contacts]
+a = "fastmail_nextidea_contacts_local"
+b = "fastmail_nextidea_contacts_remote"
+collections = ["from b"]
+metadata = ["displayname"]
+# conflict_resolution = null
+
+[storage fastmail_nextidea_contacts_local]
+type = "filesystem"
+path = "~/.local/share/vdir/fastmail-nextidea/contacts/"
+fileext = ".vcf"
+
+[storage fastmail_nextidea_contacts_remote]
+type = "carddav"
+url = "https://carddav.fastmail.com/"
+username = "craig@nextidea.io"
+password.fetch = ["command", "pass", "show", "api/fastmail/craig@nextidea.io/dav/app-password"]
+
+# nextidea Fastmail CalDAV: discover every server-side collection and sync
+# both calendar events and todos into one collection-preserving local tree.
+[pair fastmail_nextidea_caldav]
+a = "fastmail_nextidea_caldav_local"
+b = "fastmail_nextidea_caldav_remote"
+collections = ["from b"]
+metadata = ["displayname", "color", "description"]
+# conflict_resolution = null
+
+[storage fastmail_nextidea_caldav_local]
+type = "filesystem"
+path = "~/.local/share/vdir/fastmail-nextidea/caldav/"
+fileext = ".ics"
+
+[storage fastmail_nextidea_caldav_remote]
+type = "caldav"
+url = "https://caldav.fastmail.com/"
+username = "craig@nextidea.io"
+password.fetch = ["command", "pass", "show", "api/fastmail/craig@nextidea.io/dav/app-password"]
+item_types = ["VEVENT", "VTODO"]

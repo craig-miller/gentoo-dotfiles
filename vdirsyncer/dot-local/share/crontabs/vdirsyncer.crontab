@@ -1,0 +1,13 @@
+# vdirsyncer — sync local vdir mirrors for contacts/calendars/tasks.
+#
+# Agent-guarded: vdirsyncer-cron skips silently while the GPG agent is locked
+# (all credentials come from pass), so this ticks every 15 minutes without
+# pinentry prompts from cron. Real failures still notify via notify-send
+# (critical). flock prevents overlapping syncs.
+#
+# Install: cd ~/dotfiles && stow --dotfiles --no-folding -R vdirsyncer
+#          cat ~/.local/share/crontabs/* | crontab -
+PATH=/usr/bin:/bin
+XDG_RUNTIME_DIR=/run/user/1000
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+*/15 * * * * /usr/bin/flock -n /tmp/vdirsyncer.lock /home/craig/.local/bin/vdirsyncer-cron > /dev/null 2>&1

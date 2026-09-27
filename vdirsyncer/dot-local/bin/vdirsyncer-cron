@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -u
+
+export PATH=/usr/bin:/bin
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/1000/bus}"
+
+# pass-driven syncs must never hang on a pinentry prompt from cron: batch mode
+# makes a locked agent fail fast with a non-zero status instead of prompting.
+export PASSWORD_STORE_GPG_OPTS="--batch --no-tty"
+
+# Agent guard — vdirsyncer fetches every credential from pass, so a locked GPG
+# agent would fail all backends. Probe the agent with a tiny encrypted file:
+# decryption succeeds exactly when the key is cached (agent unlocked). When
+# locked, skip this tick silently; the next 15-minute tick after you unlock
+# (e.g. `pass` in a terminal) catches up.
+if ! gpg --batch --no-tty --quiet --decrypt "${HOME}/.local/state/vdirsyncer/probe.asc" >/dev/null 2>&1; then
+	exit 0
+fi
+
+status=0
+
+run_backend() {
+	local name="$1"
+	local description="$2"
+	shift 2
+
+	local out
+	out="$(mktemp /tmp/vdirsyncer.XXXXXX.log)"
+
+	if ! /usr/bin/vdirsyncer sync "$@" >"$out" 2>&1; then
+		/usr/bin/notify-send \
+			-u critical \
+			-a vdirsyncer \
+			"${name} CalDAV Sync Failed" \
+			"${description}"
+		status=1
+	fi
+
+	rm -f "$out"
+}
+
+run_backend \
+	"Daylite" \
+	"Daylite contacts, calendar, and tasks not updated." \
+	daylite_contacts daylite_calendars daylite_tasks
+
+run_backend \
+	"iCloud" \
+	"iCloud contacts and calendar not updated." \
+	icloud_contacts icloud_calendars
+
+run_backend \
+	"Fastmail" \
+	"Fastmail contacts, calendar, and tasks not updated." \
+	fastmail_contacts fastmail_calendars fastmail_tasks \
+	fastmail_nextidea_contacts fastmail_nextidea_caldav
+
+exit "$status"

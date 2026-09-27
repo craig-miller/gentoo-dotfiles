@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# Copyright 2026 Craig Miller
+# Distributed under the terms of the MIT License
+
+VDIRSYNCER_FASTMAIL_LOGFILE=${VDIRSYNCER_FASTMAIL_LOGFILE:-$HOME/.local/state/vdirsyncer/fastmail-loop.log}
+
+name="vdirsyncer-fastmail"
+description="Fastmail CalDAV/CardDAV vdirsyncer loop"
+
+supervisor=supervise-daemon
+command="$HOME/.local/bin/vdirsyncer-fastmail-loop"
+output_log="${VDIRSYNCER_FASTMAIL_LOGFILE}"
+error_log="${VDIRSYNCER_FASTMAIL_LOGFILE}"
+
+export VDIRSYNCER_FASTMAIL_INTERVAL=${VDIRSYNCER_FASTMAIL_INTERVAL:-10}
+export VDIRSYNCER_FASTMAIL_BACKOFF=${VDIRSYNCER_FASTMAIL_BACKOFF:-60}
+export VDIRSYNCER_FASTMAIL_DISCOVER_INTERVAL=${VDIRSYNCER_FASTMAIL_DISCOVER_INTERVAL:-3600}
+
+depend() {
+	after net
+}
+
+start_pre() {
+	checkpath -q -d -o "${command_user:-$USER}" "$(dirname "${VDIRSYNCER_FASTMAIL_LOGFILE}")"
+}

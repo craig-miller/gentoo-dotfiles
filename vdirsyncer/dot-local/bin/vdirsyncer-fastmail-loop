@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -u
+
+export PATH=/usr/bin:/bin
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/1000/bus}"
+export PASSWORD_STORE_GPG_OPTS="--batch --no-tty"
+
+interval="${VDIRSYNCER_FASTMAIL_INTERVAL:-10}"
+backoff="${VDIRSYNCER_FASTMAIL_BACKOFF:-60}"
+discover_interval="${VDIRSYNCER_FASTMAIL_DISCOVER_INTERVAL:-3600}"
+lockfile="${VDIRSYNCER_LOCKFILE:-/tmp/vdirsyncer.lock}"
+probe="${VDIRSYNCER_GPG_PROBE:-${HOME}/.local/state/vdirsyncer/probe.asc}"
+
+pairs=(
+	fastmail_contacts
+	fastmail_calendars
+	fastmail_tasks
+	fastmail_nextidea_contacts
+	fastmail_nextidea_caldav
+)
+discovery_pairs=(fastmail_nextidea_contacts fastmail_nextidea_caldav)
+last_discovery=0
+
+log() {
+	printf '%s %s\n' "$(date -Is)" "$*"
+}
+
+sleep_for() {
+	local seconds="$1"
+	sleep "$seconds" &
+	wait $!
+}
+
+trap 'log "stopping"; exit 0' INT TERM
+
+log "starting interval=${interval}s discover_interval=${discover_interval}s pairs=${pairs[*]}"
+
+while :; do
+	if ! gpg --batch --no-tty --quiet --decrypt "$probe" >/dev/null 2>&1; then
+		log "gpg agent locked; skipping tick"
+		sleep_for "$interval"
+		continue
+	fi
+
+	now=$(date +%s)
+	if ((now - last_discovery >= discover_interval)); then
+		# These pairs use collections=["from b"], so accepting discovery prompts
+		# may create local collection directories but cannot create remote ones.
+		if /usr/bin/yes y | /usr/bin/flock -n "$lockfile" \
+			/usr/bin/vdirsyncer discover "${discovery_pairs[@]}"; then
+			log "collection discovery complete pairs=${discovery_pairs[*]}"
+		else
+			log "collection discovery failed; retaining the previous collection cache"
+		fi
+		last_discovery=$now
+	fi
+
+	if /usr/bin/flock -n "$lockfile" /usr/bin/vdirsyncer sync "${pairs[@]}"; then
+		sleep_for "$interval"
+	else
+		status=$?
+		log "sync failed status=${status}; backing off ${backoff}s"
+		sleep_for "$backoff"
+	fi
+done

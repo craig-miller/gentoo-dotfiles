@@ -26,8 +26,19 @@ profiles:
     displayName: nextidea.io
     emailAccounts:
       - nextidea
+    contactSources:
+      - fastmail-nextidea-personal
+      - fastmail-nextidea-global
+    calendarSources:
+      - fastmail-nextidea-work
+      - fastmail-nextidea-craig
+      - fastmail-nextidea-daylite-meeting-links
+    taskSources:
+      - fastmail-nextidea-todo
     defaults:
       emailAccount: nextidea
+      calendarSource: fastmail-nextidea-work
+      taskSource: fastmail-nextidea-todo
 
 contacts:
   sources:
@@ -49,6 +60,14 @@ contacts:
       kind: vcardDirectory
       displayName: Fastmail
       path: ~/.local/share/vdir/fastmail/contacts/Default
+    fastmail-nextidea-personal:
+      kind: vcardDirectory
+      displayName: Personal
+      path: ~/.local/share/vdir/fastmail-nextidea/contacts/Default
+    fastmail-nextidea-global:
+      kind: vcardDirectory
+      displayName: Global Address Book
+      path: ~/.local/share/vdir/fastmail-nextidea/contacts/masteruser_autos7y5yx8@fastmail.com.Shared
 
 calendars:
   sources:
@@ -62,6 +81,21 @@ calendars:
       displayName: Holidays
       path: ~/.local/share/vdir/fastmail/calendars/9E0D7ACC-466A-11F1-8F33-4C429B0D7FC7
       access: readOnly
+    fastmail-nextidea-work:
+      kind: icalendarDirectory
+      displayName: Work
+      path: ~/.local/share/vdir/fastmail-nextidea/caldav/C695076C-B96A-11F1-B564-A06D75F6E690
+      access: readOnly
+    fastmail-nextidea-craig:
+      kind: icalendarDirectory
+      displayName: Craig Miller
+      path: ~/.local/share/vdir/fastmail-nextidea/caldav/16d45c08-eb77-4073-b855-e2ce108628ca
+      access: readOnly
+    fastmail-nextidea-daylite-meeting-links:
+      kind: icalendarDirectory
+      displayName: Daylite Meeting Links
+      path: ~/.local/share/vdir/fastmail-nextidea/caldav/C7DCE892-B96A-11F1-B564-A06D75F6E690
+      access: readOnly
 
 tasks:
   sources:
@@ -69,6 +103,11 @@ tasks:
       kind: icalendarDirectory
       displayName: Fastmail
       path: ~/.local/share/vdir/fastmail/tasks/tasks
+      access: readWrite
+    fastmail-nextidea-todo:
+      kind: icalendarDirectory
+      displayName: Todo
+      path: ~/.local/share/vdir/fastmail-nextidea/caldav/51DC7576-39DE-4ECA-8A79-EAF9A96762D3
       access: readWrite
 
 email:
