@@ -21,34 +21,11 @@ url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
 username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
 password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
 
-# Daylite calendars: CalDAV VEVENT -> local .ics vdir
-[pair daylite_calendars]
-a = "daylite_calendars_local"
-b = "daylite_calendars_remote"
-# Daylite exposes calendar + task collections from the same CalDAV endpoint.
-# Keep events and tasks separate locally by naming the collection explicitly.
-collections = ["calendar"]
-metadata = ["displayname", "color", "description"]
-# conflict_resolution = null
-
-[storage daylite_calendars_local]
-type = "filesystem"
-path = "~/.local/share/vdir/daylite/calendars/"
-fileext = ".ics"
-
-[storage daylite_calendars_remote]
-type = "caldav"
-url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
-username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
-password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
-item_types = ["VEVENT"]
-
 # Daylite tasks/todos: CalDAV VTODO -> local .ics vdir
 [pair daylite_tasks]
 a = "daylite_tasks_local"
 b = "daylite_tasks_remote"
 # Daylite publishes task collections alongside normal calendars.
-# Sync only the task collections into the local tasks tree.
 collections = ["task_inbox", "task_worklist"]
 metadata = ["displayname", "color", "description"]
 # conflict_resolution = null

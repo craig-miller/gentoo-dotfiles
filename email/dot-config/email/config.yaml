@@ -32,7 +32,6 @@ profiles:
     calendarSources:
       - fastmail-nextidea-work
       - fastmail-nextidea-craig
-      - fastmail-nextidea-daylite-meeting-links
     taskSources:
       - fastmail-nextidea-todo
       - daylite-inbox
@@ -92,11 +91,6 @@ calendars:
       kind: icalendarDirectory
       displayName: Craig Miller
       path: ~/.local/share/vdir/fastmail-nextidea/caldav/16d45c08-eb77-4073-b855-e2ce108628ca
-      access: readOnly
-    fastmail-nextidea-daylite-meeting-links:
-      kind: icalendarDirectory
-      displayName: Daylite Meeting Links
-      path: ~/.local/share/vdir/fastmail-nextidea/caldav/C7DCE892-B96A-11F1-B564-A06D75F6E690
       access: readOnly
 
 tasks:

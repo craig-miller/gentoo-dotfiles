@@ -42,8 +42,8 @@ run_backend() {
 
 run_backend \
 	"Daylite" \
-	"Daylite contacts, calendar, and tasks not updated." \
-	daylite_contacts daylite_calendars daylite_tasks
+	"Daylite contacts and tasks not updated." \
+	daylite_contacts daylite_tasks
 
 run_backend \
 	"iCloud" \
