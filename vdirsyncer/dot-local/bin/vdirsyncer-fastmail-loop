@@ -17,9 +17,10 @@ pairs=(
 	fastmail_calendars
 	fastmail_tasks
 	fastmail_nextidea_contacts
-	fastmail_nextidea_caldav
 )
 discovery_pairs=(fastmail_nextidea_contacts fastmail_nextidea_caldav)
+nextidea_collection_cache="${HOME}/.local/state/vdirsyncer/status/fastmail_nextidea_caldav.collections"
+declare -A retry_after=()
 last_discovery=0
 
 log() {
@@ -30,6 +31,38 @@ sleep_for() {
 	local seconds="$1"
 	sleep "$seconds" &
 	wait $!
+}
+
+sync_with_backoff() {
+	local key="$1"
+	shift
+	local now
+	now=$(date +%s)
+	if ((now < ${retry_after[$key]:-0})); then
+		return
+	fi
+	if /usr/bin/flock -n "$lockfile" /usr/bin/vdirsyncer sync "$@"; then
+		unset "retry_after[$key]"
+	else
+		local status=$?
+		retry_after[$key]=$((now + backoff))
+		log "sync failed key=${key} status=${status}; retrying after ${backoff}s"
+	fi
+}
+
+nextidea_collection_ids() {
+	/usr/bin/python3 - "$nextidea_collection_cache" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        state = json.load(handle)
+    for collection_id, _ in state.get("collections", []):
+        print(collection_id)
+except (OSError, ValueError):
+    pass
+PY
 }
 
 trap 'log "stopping"; exit 0' INT TERM
@@ -56,11 +89,12 @@ while :; do
 		last_discovery=$now
 	fi
 
-	if /usr/bin/flock -n "$lockfile" /usr/bin/vdirsyncer sync "${pairs[@]}"; then
-		sleep_for "$interval"
-	else
-		status=$?
-		log "sync failed status=${status}; backing off ${backoff}s"
-		sleep_for "$backoff"
-	fi
+	sync_with_backoff "fastmail-base" "${pairs[@]}"
+	while IFS= read -r collection_id; do
+		[[ -n "$collection_id" ]] || continue
+		sync_with_backoff \
+			"fastmail-nextidea-caldav/${collection_id}" \
+			"fastmail_nextidea_caldav/${collection_id}"
+	done < <(nextidea_collection_ids)
+	sleep_for "$interval"
 done
