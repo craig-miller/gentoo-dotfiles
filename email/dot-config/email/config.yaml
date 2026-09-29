@@ -16,11 +16,16 @@ profiles:
       - fastmail-primary
       - fastmail-holidays
     taskSources:
-      - fastmail
+      - fastmail-inbox
+      - fastmail-cabin
+      - fastmail-finance
+      - fastmail-home
+      - fastmail-relationships
+      - fastmail-wellness
     defaults:
       emailAccount: fastmail
       calendarSource: fastmail-primary
-      taskSource: fastmail
+      taskSource: fastmail-inbox
 
   nextidea:
     displayName: nextidea.io
@@ -105,10 +110,35 @@ tasks:
       displayName: Daylite Worklist
       path: ~/.local/share/vdir/daylite/tasks/task_worklist
       access: readWrite
-    fastmail:
+    fastmail-inbox:
       kind: icalendarDirectory
-      displayName: Fastmail
+      displayName: Inbox
       path: ~/.local/share/vdir/fastmail/tasks/tasks
+      access: readWrite
+    fastmail-cabin:
+      kind: icalendarDirectory
+      displayName: Cabin
+      path: ~/.local/share/vdir/fastmail/tasks/cabin
+      access: readWrite
+    fastmail-finance:
+      kind: icalendarDirectory
+      displayName: Finance
+      path: ~/.local/share/vdir/fastmail/tasks/finance
+      access: readWrite
+    fastmail-home:
+      kind: icalendarDirectory
+      displayName: Home
+      path: ~/.local/share/vdir/fastmail/tasks/home
+      access: readWrite
+    fastmail-relationships:
+      kind: icalendarDirectory
+      displayName: Relationships
+      path: ~/.local/share/vdir/fastmail/tasks/relationships
+      access: readWrite
+    fastmail-wellness:
+      kind: icalendarDirectory
+      displayName: Wellness
+      path: ~/.local/share/vdir/fastmail/tasks/wellness
       access: readWrite
     fastmail-nextidea-todo:
       kind: icalendarDirectory
