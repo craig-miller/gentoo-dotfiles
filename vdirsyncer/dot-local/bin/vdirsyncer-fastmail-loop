@@ -8,7 +8,7 @@ export PASSWORD_STORE_GPG_OPTS="--batch --no-tty"
 
 interval="${VDIRSYNCER_FASTMAIL_INTERVAL:-10}"
 backoff="${VDIRSYNCER_FASTMAIL_BACKOFF:-60}"
-discover_interval="${VDIRSYNCER_FASTMAIL_DISCOVER_INTERVAL:-3600}"
+discover_interval="${VDIRSYNCER_FASTMAIL_DISCOVER_INTERVAL:-300}"
 lockfile="${VDIRSYNCER_LOCKFILE:-/tmp/vdirsyncer.lock}"
 probe="${VDIRSYNCER_GPG_PROBE:-${HOME}/.local/state/vdirsyncer/probe.asc}"
 
@@ -18,7 +18,7 @@ pairs=(
 	fastmail_tasks
 	fastmail_nextidea_contacts
 )
-discovery_pairs=(fastmail_nextidea_contacts fastmail_nextidea_caldav)
+discovery_pairs=(fastmail_tasks fastmail_nextidea_contacts fastmail_nextidea_caldav)
 nextidea_collection_cache="${HOME}/.local/state/vdirsyncer/status/fastmail_nextidea_caldav.collections"
 declare -A retry_after=()
 last_discovery=0

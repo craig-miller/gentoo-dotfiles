@@ -1,47 +1,6 @@
 [general]
 status_path = "~/.local/state/vdirsyncer/status/"
 
-# Daylite contacts: CardDAV -> local .vcf vdir
-[pair daylite_contacts]
-a = "daylite_contacts_local"
-b = "daylite_contacts_remote"
-collections = ["from a", "from b"]
-metadata = ["displayname"]
-# Fail loudly on conflicts until the Daylite DAV projection is understood.
-# conflict_resolution = null
-
-[storage daylite_contacts_local]
-type = "filesystem"
-path = "~/.local/share/vdir/daylite/contacts/"
-fileext = ".vcf"
-
-[storage daylite_contacts_remote]
-type = "carddav"
-url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
-username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
-password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
-
-# Daylite tasks/todos: CalDAV VTODO -> local .ics vdir
-[pair daylite_tasks]
-a = "daylite_tasks_local"
-b = "daylite_tasks_remote"
-# Daylite publishes task collections alongside normal calendars.
-collections = ["task_inbox", "task_worklist"]
-metadata = ["displayname", "color", "description"]
-# conflict_resolution = null
-
-[storage daylite_tasks_local]
-type = "filesystem"
-path = "~/.local/share/vdir/daylite/tasks/"
-fileext = ".ics"
-
-[storage daylite_tasks_remote]
-type = "caldav"
-url.fetch = ["command", "pass", "show", "api/daylite/caldav/server-url"]
-username.fetch = ["command", "pass", "show", "api/daylite/caldav/username"]
-password.fetch = ["command", "pass", "show", "api/daylite/caldav/app-password"]
-item_types = ["VTODO"]
-
 # iCloud contacts: CardDAV -> local .vcf vdir
 [pair icloud_contacts]
 a = "icloud_contacts_local"
@@ -123,12 +82,15 @@ username.fetch = ["command", "pass", "show", "api/fastmail/caldav/username"]
 password.fetch = ["command", "pass", "show", "api/fastmail/caldav/app-password"]
 item_types = ["VEVENT"]
 
-# Fastmail tasks: CalDAV VTODO -> local .ics vdir
-# 'tasks' collection created via MKCALENDAR (Fastmail exposes no tasks UI)
+# Fastmail tasks: CalDAV VTODO -> local .ics vdir.
+# Discover provider collections so newly created lists begin syncing automatically.
+# Fastmail exposes calendars through the same CalDAV home; item_types limits this
+# pair to VTODO data, although discovery may create empty local directories for
+# VEVENT-only collections.
 [pair fastmail_tasks]
 a = "fastmail_tasks_local"
 b = "fastmail_tasks_remote"
-collections = ["tasks"]
+collections = ["from b"]
 metadata = ["displayname", "color", "description"]
 # conflict_resolution = null
 

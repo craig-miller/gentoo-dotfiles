@@ -16,16 +16,11 @@ profiles:
       - fastmail-primary
       - fastmail-holidays
     taskSources:
-      - fastmail-inbox
-      - fastmail-cabin
-      - fastmail-finance
-      - fastmail-home
-      - fastmail-relationships
-      - fastmail-wellness
+      - fastmail-task-lists
     defaults:
       emailAccount: fastmail
       calendarSource: fastmail-primary
-      taskSource: fastmail-inbox
+      taskSource: fastmail-task-lists
 
   nextidea:
     displayName: nextidea.io
@@ -38,20 +33,14 @@ profiles:
       - fastmail-nextidea-work
       - fastmail-nextidea-craig
     taskSources:
-      - fastmail-nextidea-todo
-      - daylite-inbox
-      - daylite-worklist
+      - fastmail-nextidea-task-lists
     defaults:
       emailAccount: nextidea
       calendarSource: fastmail-nextidea-work
-      taskSource: fastmail-nextidea-todo
+      taskSource: fastmail-nextidea-task-lists
 
 contacts:
   sources:
-    daylite:
-      kind: vcardDirectory
-      displayName: Daylite
-      path: ~/.local/share/vdir/daylite/contacts/shared_list_addressbook
     icloud:
       kind: vcardDirectory
       displayName: iCloud
@@ -100,50 +89,28 @@ calendars:
 
 tasks:
   sources:
-    daylite-inbox:
-      kind: icalendarDirectory
-      displayName: Daylite Inbox
-      path: ~/.local/share/vdir/daylite/tasks/task_inbox
+    fastmail-task-lists:
+      kind: icalendarCollectionDirectory
+      displayName: Fastmail Task Lists
+      path: ~/.local/share/vdir/fastmail/tasks
+      collectionsFile: ~/.local/state/vdirsyncer/status/fastmail_tasks.collections
+      sourceIDPrefix: fastmail-
+      inboxCollection: tasks
+      excludedCollections:
+        - 134B7FA0-45C1-11F1-BC43-106590036B07
+        - 9E0D7ACC-466A-11F1-8F33-4C429B0D7FC7
       access: readWrite
-    daylite-worklist:
-      kind: icalendarDirectory
-      displayName: Daylite Worklist
-      path: ~/.local/share/vdir/daylite/tasks/task_worklist
-      access: readWrite
-    fastmail-inbox:
-      kind: icalendarDirectory
-      displayName: Inbox
-      path: ~/.local/share/vdir/fastmail/tasks/tasks
-      access: readWrite
-    fastmail-cabin:
-      kind: icalendarDirectory
-      displayName: Cabin
-      path: ~/.local/share/vdir/fastmail/tasks/cabin
-      access: readWrite
-    fastmail-finance:
-      kind: icalendarDirectory
-      displayName: Finance
-      path: ~/.local/share/vdir/fastmail/tasks/finance
-      access: readWrite
-    fastmail-home:
-      kind: icalendarDirectory
-      displayName: Home
-      path: ~/.local/share/vdir/fastmail/tasks/home
-      access: readWrite
-    fastmail-relationships:
-      kind: icalendarDirectory
-      displayName: Relationships
-      path: ~/.local/share/vdir/fastmail/tasks/relationships
-      access: readWrite
-    fastmail-wellness:
-      kind: icalendarDirectory
-      displayName: Wellness
-      path: ~/.local/share/vdir/fastmail/tasks/wellness
-      access: readWrite
-    fastmail-nextidea-todo:
-      kind: icalendarDirectory
-      displayName: Todo
-      path: ~/.local/share/vdir/fastmail-nextidea/caldav/51DC7576-39DE-4ECA-8A79-EAF9A96762D3
+    fastmail-nextidea-task-lists:
+      kind: icalendarCollectionDirectory
+      displayName: nextidea.io Task Lists
+      path: ~/.local/share/vdir/fastmail-nextidea/caldav
+      collectionsFile: ~/.local/state/vdirsyncer/status/fastmail_nextidea_caldav.collections
+      sourceIDPrefix: fastmail-nextidea-
+      inboxCollection: 51DC7576-39DE-4ECA-8A79-EAF9A96762D3
+      excludedCollections:
+        - 0713b9ad-e4b9-47d2-bae1-3508294c2dff
+        - 16d45c08-eb77-4073-b855-e2ce108628ca
+        - C695076C-B96A-11F1-B564-A06D75F6E690
       access: readWrite
 
 email:
