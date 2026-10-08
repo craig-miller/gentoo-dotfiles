@@ -1,6 +1,8 @@
 #!/sbin/openrc-run
 # Copyright 2026 Craig Miller
 # Distributed under the terms of the MIT License
+# Intentionally excluded from the user default runlevel. Start and stop this
+# daemon explicitly with `rc-service --user jmapsyncd start|stop`.
 
 JMAPSYNCD_LOGFILE=${JMAPSYNCD_LOGFILE:-$HOME/.local/state/jmapsyncd/jmapsyncd.log}
 
