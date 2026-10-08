@@ -12,9 +12,11 @@ jmap_token_cmd = "pass show api/fastmail/craig@craigmiller.io/jmap-token"
 timeout_secs = 30
 poll_interval_secs = 300
 
+# Disabled during the first manual Phase 8 acceptance. Its existing account store
+# remains readable, but the login daemon exposes no nextidea control/write path.
 [[accounts]]
 name = "nextidea"
-enabled = true
+enabled = false
 jmap_host = "api.fastmail.com"
 jmap_user = "craig@nextidea.io"
 jmap_token_cmd = "pass show api/fastmail/craig@nextidea.io/jmap-token"

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+binary="$HOME/src/email/.build/release/email"
+if [[ ! -x "$binary" ]]; then
+	message="Email development release build is missing. Run: cd $HOME/src/email && SCUI_DEFAULT_BACKEND=GtkBackend swift build -c release --product email"
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send "Email (Development Release)" "$message"
+	fi
+	printf '%s\n' "$message" >&2
+	exit 1
+fi
+
+export GSK_RENDERER=cairo
+export SCUI_DEFAULT_BACKEND=GtkBackend
+exec "$binary" "$@"

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Email (Development Release)
+Comment=Test the JMAP-first Email development release
+Exec=/home/craig/.local/bin/email-dev-release
+Icon=mail-message-new-symbolic
+Terminal=false
+StartupNotify=true
+Categories=Network;Email;
+Keywords=email;mail;jmap;
