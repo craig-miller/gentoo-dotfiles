@@ -152,7 +152,7 @@ email:
       unsubscribe_message:
         - shift-u
       folder_select:
-        - shift-m
+        - ctrl-f
       move_message:
         - m
       toggle_read:
