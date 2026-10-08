@@ -6,6 +6,8 @@ data_root = "~/.local/share/connectr"
 [[accounts]]
 name = "personal"
 enabled = true
+# Requires daemon-side Trash-only validation; Email separately requires confirmation.
+permanent_destroy_policy = "confirmed_trash_only"
 jmap_host = "api.fastmail.com"
 jmap_user = "craig@craigmiller.io"
 jmap_token_cmd = "pass show api/fastmail/craig@craigmiller.io/jmap-token"
