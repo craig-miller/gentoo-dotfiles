@@ -153,24 +153,6 @@ email:
         - u
 
   accounts:
-    # Temporary Google account retained for migration reference only.
-    # google:
-    #   displayName: next idea
-    #   kind: notmuchCLI
-    #   maildirRoot: ~/mail/google
-    #   identity:
-    #     name: Craig Miller
-    #     address: craig@nextidea.io
-    #   sendmail:
-    #     kind: command
-    #     command: /usr/share/msmtp/msmtpq/msmtpq --account=nextidea
-    #   mailboxes:
-    #     inbox: INBOX
-    #     trash: "[Gmail]/Trash"
-    #     spam: "[Gmail]/Spam"
-    #   notmuch:
-    #     executable: notmuch
-
     fastmail:
       displayName: craigmiller.io
       kind: notmuchCLI
@@ -217,25 +199,3 @@ email:
       notmuch:
         executable: notmuch
 
-    icloud:
-      displayName: iCloud
-      kind: notmuchCLI
-      maildirRoot: ~/mail/icloud
-      identity:
-        name: Craig Miller
-        address: next.idea@icloud.com
-      sendmail:
-        kind: command
-        command: /usr/share/msmtp/msmtpq/msmtpq --account=icloud
-      mailboxes:
-        inbox: INBOX
-        archive: Archive
-        trash: "Deleted Messages"
-        spam: Junk
-      notmuch:
-        executable: notmuch
-
-    localMaildirFallback:
-      displayName: Local Maildir Fallback
-      kind: maildir
-      maildirRoot: ~/mail/google
