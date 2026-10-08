@@ -161,6 +161,7 @@ email:
   accounts:
     personal:
       displayName: craigmiller.io
+      permanentDestroyPolicy: confirmedTrashOnly
       identity:
         name: Craig Miller
         address: craig@craigmiller.io
