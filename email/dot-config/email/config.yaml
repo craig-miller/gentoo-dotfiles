@@ -9,7 +9,7 @@ profiles:
   fastmail:
     displayName: craigmiller.io
     emailAccounts:
-      - fastmail
+      - personal
     contactSources:
       - fastmail
     calendarSources:
@@ -18,7 +18,7 @@ profiles:
     taskSources:
       - fastmail-task-lists
     defaults:
-      emailAccount: fastmail
+      emailAccount: personal
       calendarSource: fastmail-primary
       taskSource: fastmail-task-lists
 
@@ -114,6 +114,12 @@ tasks:
       access: readWrite
 
 email:
+  jmap:
+    dataRoot: /home/craig/.local/share/connectr
+    controlSocketPath: /run/user/1000/connectr-mail-control-v2.sock
+    transferSocketPath: /run/user/1000/connectr-mail-transfer.sock
+    timeoutMilliseconds: 30000
+
   pageSize: 200
   overscan: 100
 
@@ -153,49 +159,15 @@ email:
         - u
 
   accounts:
-    fastmail:
+    personal:
       displayName: craigmiller.io
-      kind: notmuchCLI
-      maildirRoot: ~/mail/fastmail
-      mutation:
-        kind: jmapsyncctl
-        accountID: personal
-        executable: /usr/bin/jmapsyncctl
-        permanentDestroyPolicy: disabled
       identity:
         name: Craig Miller
         address: craig@craigmiller.io
-      sendmail:
-        kind: command
-        command: /usr/bin/jmapqueue --account personal
-      mailboxes:
-        inbox: Inbox
-        archive: Archive
-        trash: Trash
-        spam: Spam
-      notmuch:
-        executable: notmuch
 
     nextidea:
       displayName: nextidea.io
-      kind: notmuchCLI
-      maildirRoot: ~/mail/fastmail-nextidea
-      mutation:
-        kind: jmapsyncctl
-        accountID: nextidea
-        executable: /usr/bin/jmapsyncctl
-        permanentDestroyPolicy: disabled
       identity:
         name: Craig Miller
         address: craig@nextidea.io
-      sendmail:
-        kind: command
-        command: /usr/bin/jmapqueue --account nextidea
-      mailboxes:
-        inbox: Inbox
-        archive: Archive
-        trash: Trash
-        spam: Spam
-      notmuch:
-        executable: notmuch
 

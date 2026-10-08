@@ -1,7 +1,7 @@
-# Fastmail JMAP accounts synchronized into distinct Maildir trees.
+# Fastmail JMAP accounts synchronized into daemon-owned account stores.
 # Authentication remains in pass; no tokens are stored here.
 
-db_dir = "~/.local/share/jmapsyncd"
+data_root = "~/.local/share/connectr"
 
 [[accounts]]
 name = "personal"
@@ -12,15 +12,6 @@ jmap_token_cmd = "pass show api/fastmail/craig@craigmiller.io/jmap-token"
 timeout_secs = 30
 poll_interval_secs = 300
 
-[accounts.mail]
-path = "~/mail/fastmail"
-sync_mode = "mirror"
-subscribed_only = false
-index_refresh_hook = "notmuch new"
-
-[accounts.submit]
-from_address = "craig@craigmiller.io"
-
 [[accounts]]
 name = "nextidea"
 enabled = true
@@ -29,12 +20,3 @@ jmap_user = "craig@nextidea.io"
 jmap_token_cmd = "pass show api/fastmail/craig@nextidea.io/jmap-token"
 timeout_secs = 30
 poll_interval_secs = 300
-
-[accounts.mail]
-path = "~/mail/fastmail-nextidea"
-sync_mode = "mirror"
-subscribed_only = false
-index_refresh_hook = "notmuch new"
-
-[accounts.submit]
-from_address = "craig@nextidea.io"
