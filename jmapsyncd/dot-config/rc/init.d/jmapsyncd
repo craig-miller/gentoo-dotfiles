@@ -1,17 +1,16 @@
 #!/sbin/openrc-run
 # Copyright 2026 Craig Miller
 # Distributed under the terms of the MIT License
-# Development deployment: the user default runlevel starts the reviewed source-tree
-# build. Email remains manually launched so acceptance stays user-controlled.
+# Development deployment: the user default runlevel starts the reviewed source-tree build.
 
 JMAPSYNCD_LOGFILE=${JMAPSYNCD_LOGFILE:-$HOME/.local/state/jmapsyncd/jmapsyncd.log}
 JMAPSYNCD_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 
-description="Development JMAP-first mail synchronization daemon"
+description="Development JMAP mail synchronization daemon"
 
 supervisor=supervise-daemon
 command="$HOME/src/jmapsyncd/target/debug/jmapsyncd"
-command_args="--config $HOME/.config/jmapsyncd/config.toml --log-level info --candidate-jmap-first --socket $JMAPSYNCD_RUNTIME_DIR/connectr-mail-control-v2.sock --transfer-socket $JMAPSYNCD_RUNTIME_DIR/connectr-mail-transfer.sock daemon"
+command_args="--config $HOME/.config/jmapsyncd/config.toml --log-level info --socket $JMAPSYNCD_RUNTIME_DIR/connectr-mail-control-v2.sock --transfer-socket $JMAPSYNCD_RUNTIME_DIR/connectr-mail-transfer.sock daemon"
 output_log="${JMAPSYNCD_LOGFILE}"
 error_log="${JMAPSYNCD_LOGFILE}"
 
