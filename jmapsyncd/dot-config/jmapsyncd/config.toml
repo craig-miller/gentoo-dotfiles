@@ -18,6 +18,8 @@ poll_interval_secs = 300
 [[accounts]]
 name = "nextidea"
 enabled = true
+# Requires daemon-side Trash-only validation; Email separately requires confirmation.
+permanent_destroy_policy = "confirmed_trash_only"
 jmap_host = "api.fastmail.com"
 jmap_user = "craig@nextidea.io"
 jmap_token_cmd = "pass show api/fastmail/craig@nextidea.io/jmap-token"
