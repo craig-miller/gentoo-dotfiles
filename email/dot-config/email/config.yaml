@@ -168,6 +168,7 @@ email:
 
     nextidea:
       displayName: nextidea.io
+      permanentDestroyPolicy: confirmedTrashOnly
       identity:
         name: Craig Miller
         address: craig@nextidea.io
