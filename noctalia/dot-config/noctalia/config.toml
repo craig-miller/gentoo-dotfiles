@@ -1,4 +1,4 @@
-# Noctalia v5 — zentoo evaluation config.
+# Noctalia v5 desktop configuration.
 
 [shell]
 offline_mode = false                # community palette + community templates fetch enabled

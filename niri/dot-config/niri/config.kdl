@@ -307,7 +307,7 @@ window-rule {
 }
 
 window-rule {
-    match app-id="zentoo-vnc"
+    match app-id="remote-desktop"
     open-floating true
 }
 
