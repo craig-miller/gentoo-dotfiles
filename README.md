@@ -1,6 +1,6 @@
-# zentoo-dotfiles
+# gentoo-dotfiles
 
-Versioned configs for my Gentoo-on-M1 setup ([zentoo](https://github.com/craig-miller/zentoo-overlay)). Managed with [GNU stow](https://www.gnu.org/software/stow/).
+Versioned configs for my Asahi Gentoo-on-M1 setup ([gentoo-overlay](https://github.com/craig-miller/gentoo-overlay)). Managed with [GNU stow](https://www.gnu.org/software/stow/).
 
 Each package mirrors `~/.config/<name>/`. The `dot-config/` directory translates to `.config/` via stow's `--dotfiles` flag.
 
@@ -15,7 +15,7 @@ Each package mirrors `~/.config/<name>/`. The `dot-config/` directory translates
 ## Usage
 
 ```
-git clone https://github.com/craig-miller/zentoo-dotfiles.git ~/dotfiles
+git clone https://github.com/craig-miller/gentoo-dotfiles.git ~/dotfiles
 cd ~/dotfiles
 stow --dotfiles --no-folding niri noctalia soundthemed nvim tmux
 ```
