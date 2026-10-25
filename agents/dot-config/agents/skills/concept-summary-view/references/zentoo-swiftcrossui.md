@@ -20,7 +20,32 @@ For keyboard changes read `docs/dashboard-areas-keyboard-plan.md` and
 `docs/dashboard-area-commands.md`; the generic contract is
 `references/keyboard-contract.md` relative to this skill's root. Existing features
 have different current keymap support; do not claim the new Area contract has
-already migrated Email, Tasks or Calendar.
+already migrated Email, Tasks or Calendar. Read
+[the reusable header/spacing blueprint](table-layout.md) for the current visual
+structure, not the superseded title-fills-all-spare-width behavior.
+
+## Current header and spacing example
+
+The Area header has two levels: Active, Someday/Maybe and Review group captions
+above their leaf captions. **Area, Overdue and Edit sit on the lower level** with
+Projects/Tasks, Review and Mark Reviewed. `ReviewAreaTableHeader` bottom-aligns its
+outer `HStack`; grouped `VStack`s use a 2-point level gap. Do not vertically center
+the standalone headings across both levels or copy a measured offset.
+
+`ReviewAreaTableLayout.titleWidth(in:)` caps the desktop title at **280 points**
+and reserves non-title cells, all gaps, 12-point side insets and the 5-point
+attention edge before shrinking. The list passes each real proposal to the header
+and row; both append trailing flexible space after Edit. The row surface and notes
+still span the pane. Current example widths are: count 72, Overdue 184, Review 88,
+Mark Reviewed 88 (44×32 button), Edit 44, column gaps 8. Header attention-edge space
+is transparent. Narrow labelled details replace columns below the existing
+850-point Area breakpoint. These measurements illustrate the proven arrangement;
+other concepts choose their own actual columns/captions and fit breakpoint.
+
+Native evidence is in `AreaListNativeTests`: title-to-Overdue **column** edge,
+constant wide-screen positions, two header levels including standalone captions,
+row/header centers, narrow/resize-back and actual five-digit text width. See
+`docs/review-area-cards.md` (bounded title and header level) for product decisions.
 
 ## Small existing implementation seams
 
@@ -31,8 +56,9 @@ already migrated Email, Tasks or Calendar.
 - `ReviewAreaListView.swift`: explicit native layout, bounded row page, stable
   TaskID-keyed nodes and real-proposal remeasurement at commit. Header visibility
   participates in native child insertion/removal and layout results.
-- `ReviewAreaTableLayout.swift` and `ReviewAreaTableHeader.swift`: shared column
-  widths, grouped headings, centered cells and independently sized action columns.
+- `ReviewAreaTableLayout.swift` and `ReviewAreaTableHeader.swift`: shared capped
+  title width, lower-level standalone headings, grouped captions, trailing spare
+  space, centered cells and independently sized action columns.
   Treat the particular columns and breakpoints as example values, not a template
   to duplicate unchanged.
 - `ReviewAreaCardView.swift`: despite its historical name, the shared renderer
@@ -48,10 +74,20 @@ already migrated Email, Tasks or Calendar.
   contextual command sessions. `Configuration/ReviewAreaKeymapLoader.swift` under
   `Sources/email/` loads startup overrides without changing live configuration.
   Native controls, shortcuts and commands reuse the same eligibility/dispatch.
+  The current namespace is `dashboard.areas.keybindings.normal`; this does not
+  prove another concept's namespace exists. For a new concept, follow the generic
+  action-matrix/setup recipe and wire its supported IDs through the whole loader/
+  runtime/dependency/workflow/router chain before documenting its configuration.
 - `ReviewAreaCommandPanel.swift` / `ReviewAreaModalHost.swift` in the Review view
   directory: reuse the app's command entry and existing shell sheet. Native key
   release/repeat observation crosses command/editor windows without a competing
   normal-mode dispatcher. Keep modal ownership and exact-target guards intact.
+- `ReviewAreaPresentationModel.swift` / `ReviewAreaViewState.swift` under
+  `Sources/email/Review/`: page/data and row-local selection observation. The
+  snapshot/summary/display-availability caches avoid repeated layout-time work;
+  `ReviewAreaWorkflow.perform` always reruns fresh dispatch admission. Read
+  `docs/dashboard-areas-responsiveness.md` before changing those boundaries;
+  native-readiness timings are not visible-frame or Email-parity guarantees.
 - `Sources/email/Review/ReviewAreaActions+Factory.swift`: captured-profile/current
   record/owner gates and explicit writes through the existing task store. No
   implicit review on navigation, and no automatic retry after uncertainty.

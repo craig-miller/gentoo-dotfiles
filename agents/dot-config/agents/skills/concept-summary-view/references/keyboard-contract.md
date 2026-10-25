@@ -52,6 +52,58 @@ registers or force-deletion merely for resemblance. Readers/timelines can use
 letters are contextual: review is not globally reply, and edit is not globally
 archive. No area/horizon/storage/review-cadence assumptions belong in this table.
 
+## Set up each concept's shortcuts
+
+Do not ship a copied Area switch with renamed labels. Use this implementation
+recipe for each summary concept:
+
+1. **Inventory its actual workflow.** Write an action matrix before assigning keys:
+   `stable action ID | intent | target/scope | eligibility | command aliases |
+   default sequences | confirmation/repeat policy`. Separate common navigation
+   from concept-specific actions. Open, edit, capture, deletion, review, completion
+   or planning exist only if that concept's approved workflow supports them.
+   For every domain action, decide its behavior rather than inheriting Area rules.
+2. **Register semantic actions.** Reuse supported common IDs (`next`, `previous`,
+   `first`, `last`, `open`, `edit`, `create`, `delete`, `command_mode`, `cancel`,
+   `help`) and add descriptive stable IDs for approved domain actions. Unsupported
+   actions get no misleading key/help/command entry. Preserve the common navigation/
+   primary-open conventions; domain letters such as `r` or `x` are contextual, not
+   universal review/completion instructions. Names and aliases may be contextual;
+   current-target and confirmation rules may not be bypassed.
+3. **Build one retained concept workflow/controller.** Resolve scoped selection and
+   expose display eligibility plus a semantic dispatch function. Buttons, normal
+   keys and parsed `:` commands call that function. Fresh dispatch reruns owner,
+   membership, revision, lock and uncertainty guards even if display eligibility
+   was cached. Reuse existing editors, modal ownership and mutation backends.
+4. **Compose the default map.** Start from the supported navigation vocabulary
+   above; add only supported common actions and approved domain mnemonics. Check
+   both exact collisions and prefix conflicts against app/pane/native ownership.
+   A domain action may have no default shortcut while remaining available in
+   command mode or a native control; do not invent a key just to fill a table.
+5. **Wire configuration end to end.** Choose a feature + concept + mode namespace,
+   using the host app's conventions. Connect configuration loader/validation →
+   configuration definition → runtime construction → dependencies → concept
+   workflow/resolver. Provide action-ID-to-sequence-array overrides, documented
+   defaults, deliberate unbinding, conflicts and effective-map hints. Do not stop
+   at a YAML example that no runtime consumer reads. Keep other concepts' maps
+   independent and do not alter Craig's live settings as part of implementation.
+6. **Install contextual routing.** Extend the existing application keyboard owner
+   for that concept's active list/pane; don't add a competing window controller.
+   Reuse the app's command entry/sheet, parse common and domain aliases to the same
+   IDs, freeze the entry context and restore native/list ownership safely. The
+   command panel must not be reinterpreted as normal-mode input while typing.
+7. **Prove equivalence and bounds.** Test each supported action via native control,
+   configured key and contextual command, including concept-specific actions.
+   Test missing selection, readonly/stale context, remap/unbind, collisions,
+   effective hints, Cancel, repeats and no unintended writes. Do not advertise
+   measured viewport paging until it measures actual viewport geometry.
+
+Keep high-frequency selection observation separate from whole-page data/clock
+updates. Retain stable scoped row state and bounded presentation caches, not an
+unbounded row tree or cached write permission. Profile dispatch, native readiness
+and paint separately when speed is in question; 200 ms prefix expiry is not a
+reason to delay `j`, `k`, `e` or another unambiguous single-key command.
+
 ## Configuration
 
 - Provide documented feature/mode-scoped overrides using the app's existing
@@ -59,9 +111,10 @@ archive. No area/horizon/storage/review-cadence assumptions belong in this table
   unspecified actions keep defaults. Don't require a live config change to ship.
 - Explicit mappings displace conflicting defaults. Reject duplicate explicit
   mappings and action-versus-prefix ambiguity rather than silently choosing a
-  mutation. Define invalid override/empty-array behavior explicitly; prefer a
-  deliberate unbinding mechanism. Preserve legacy semantics elsewhere unless
-  migrating them is approved. Show actionable, non-secret diagnostics.
+  mutation. Define invalid override/empty-array behavior explicitly; prefer `[]`
+  to unbind only that action's shortcuts, not disable its native/command intent.
+  Preserve legacy semantics elsewhere unless migrating them is approved. Show
+  actionable, non-secret diagnostics.
 - Do not accept unsupported key spellings or modifiers just because parsing can
   store a string. Respect native text/control keys and reserved application pane
   keys. Keep normal/composer/command/editor namespaces distinct.

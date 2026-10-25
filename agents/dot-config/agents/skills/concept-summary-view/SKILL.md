@@ -1,6 +1,6 @@
 ---
 name: concept-summary-view
-description: "Design, build, or refine compact workflow-oriented summary lists and grouped tables for concepts such as Areas, Projects, initiatives, or responsibilities. Use for concept dashboards with counts, attention/status signals, review or edit actions, shared column alignment, responsive layouts, configurable Neovim-like shortcuts, app command-mode integration, and native UI regression tests."
+description: "Design, build, or refine compact workflow-oriented concept summary tables: two-level header bars, bounded title columns, tight shared spacing, native actions, responsive layouts, configurable Neovim-like shortcuts, concept-specific semantic commands, app command mode, and native UI regression tests. Use for Areas, Projects, initiatives, responsibilities, and comparable workflow dashboards."
 ---
 
 # Concept summary views
@@ -36,7 +36,9 @@ remain in the repository's dedicated contracts, not this skill.
 
 ## 2. Agree a compact column contract
 
-Write a small column plan before coding:
+Read [the header and spacing blueprint](references/table-layout.md) before building
+or changing the table title/header bar. It specifies the two-level header, capped
+title field and trailing-space policy. Write a small column plan before coding:
 
 ```text
 Group / heading | meaning | width/alignment | zero/unknown policy | action/permission
@@ -44,9 +46,13 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
 
 - Default to full-width flat rows for comparable summaries: ordinary view surface,
   subtle separators, no card gutters or unnecessary rounded boxes.
-- Let the primary title/description absorb spare width. Give comparable counts,
-  status fields and action columns shared widths across every row and the header.
-  Define geometry once; group widths equal child widths plus shared gaps.
+- Cap the desktop title column at **280 points** by default; shrink it when needed
+  to preserve the fixed columns. Put surplus width **after the last action column**,
+  not between the title and status fields. Keep row surfaces and secondary
+  descriptions full-width. Use the same title-width calculation in header and rows.
+- Start with **8-point column gaps** and **2-point spacing between header levels**.
+  Give comparable counts, status fields and action columns shared widths across
+  every row and header. Define geometry once; group widths include child gaps.
 - Center numeric values beneath centered titles. Center status values, their
   headings and icon actions too. Keep primary names/description text leading-aligned.
   Use a different alignment only when the user or the content warrants it.
@@ -55,9 +61,11 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
 - Fit actual headings and the longest admitted numeric values. Never ellipsize
   counts, let digit lengths shift a column, or allocate large unexplained gaps.
   An icon's hit target and its column width are separate concerns.
-- Group related columns under a shared heading, aligned at the same vertical level
-  as peer groups. Use concise exact user-approved copy. Avoid redundant text in
-  cells when a visible heading provides context; retain full descriptive help.
+- Use a **two-level header**: group captions on the upper row; leaf captions on the
+  lower row. Standalone title, attention/status and Edit captions align with the
+  **lower row**, not midway between levels. Bottom-align the outer header stack;
+  do not fake alignment with hardcoded vertical offsets. Keep group captions level.
+  Use concise approved copy and retain full descriptive help.
 - On narrow panes use labelled stacked groups rather than clipped columns or an
   ambiguous run of bare numbers. Keep one full-width row per concept.
 
@@ -90,8 +98,14 @@ Read [the generic keyboard contract](references/keyboard-contract.md) before add
 commands. Define semantic actions first, then route native controls, normal-mode
 shortcuts and the app's command mode through the same eligibility/dispatch path.
 Ship configurable, feature-scoped Neovim-like defaults, not another hardcoded key
-switch. Audit actual routing and current overrides; distinguish current support
-from the desired contract and do not silently migrate other features' keymaps.
+switch. For **each concept**, inventory supported common and concept-specific
+actions first, with stable action IDs, aliases, keys, eligibility, target and
+confirmation/repeat policies. Follow the setup recipe in the keyboard reference:
+wire configuration through runtime/dependencies to the shared workflow/router,
+then derive native hints and command help from the effective map. Never copy
+Area review/deletion/completion semantics into another concept by default.
+Audit actual routing and current overrides; distinguish implemented support from
+the desired contract and do not silently migrate other features' keymaps.
 
 Keep one keyboard owner, 200 ms maximum sequence expiry, immediate unambiguous
 single-key dispatch, native text/modal/button ownership and exact current targets.
@@ -108,6 +122,10 @@ must not bypass readonly, stale-context, repeat or destructive-consent safeguard
   with their owners. Profile/source changes must not leak content or actions.
 - Keep grouping/header geometry identical to data geometry. Breakpoints must leave
   enough title space as well as fitting every numeric/action cell.
+- Separate frequent selection updates from page/data/clock observation; updating
+  the selected row should not rebuild unchanged summaries or the whole page.
+  Bound display caches by source revision, scope and other real inputs. Cached
+  display eligibility must never authorize a write; rerun fresh dispatch guards.
 - Preserve existing paging/virtualization and loading/attachment admission unless
   changing them is explicitly requested. Rendering a summary is not permission to
   eagerly load payloads, realize an unbounded native tree or add another writer.
@@ -125,8 +143,10 @@ for live application input or provider/personal-data writes.
   fixture-side repairs that conceal the old behavior.
 - Test the real routed view, not only column constants or mocked metadata.
 - Use independent native geometry: header/data centers, identical cross-row column
-  positions, group-heading levels, natural numeric text width, row heights and
-  nonoverlap. Exercise first draw after zero-width probing, several desktop widths,
+  positions, both header levels (including standalone captions on the lower row),
+  capped title-to-status distance, stable wide-screen column positions, natural
+  numeric text width, row heights and nonoverlap. Measure column slots, not just
+  a centered caption's glyph bounds. Exercise zero-width probing, desktop widths,
   narrow fallback, resize back, absent/present signals and different digit lengths.
 - Assert action-only icons, labels/tooltips, hit targets, focus, sibling controls,
   one controller per reused surface and current callbacks after record/profile
