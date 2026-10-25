@@ -75,7 +75,9 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
   Keep statuses visible in the row; do not repeat Edit/review/delete buttons or
   their column captions in every row. Keep any needed in-row disclosure separate.
 - Put Add/Remove at the leading edge of the bar, followed by a visible selected
-  name/list caption and supported Edit/domain actions. Add needs a writable
+  name-only caption (no “Selected:” prefix or collection suffix) and supported
+  Edit/domain actions. Keep actual list/source context in accessibility and target
+  guards rather than visible caption clutter. Add needs a writable
   destination, not selection; disable target-dependent actions without selection.
   Move the old section Add here rather than duplicating it. Remove requests the
   existing named confirmation, never an immediate destructive write.

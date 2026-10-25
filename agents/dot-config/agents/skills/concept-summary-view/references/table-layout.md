@@ -12,7 +12,7 @@ Upper:                       Work group
 Lower:  Concept | Attention | Measure A | Measure B | State | spare
 Data:   Name    | signal    | number    | number    | value | spare
 
-Below:  [+] [−] | Selected: name · list | [Edit] [supported domain actions]
+Below:  [+] [−] | name | [Edit] [supported domain actions]
 ```
 
 The drawing is schematic: each group spans exactly its own leaf columns. A concept
@@ -99,8 +99,9 @@ text carry data signals.
 ## Shared selection action bar
 
 - Place one leading-aligned bar **beneath/outside the list scroller** so it stays
-  reachable on long pages. Start with Add/Remove, show the selected name and actual
-  source/list, then supported Edit and concept-specific actions. Do not duplicate
+  reachable on long pages. Start with Add/Remove, show only the selected name,
+  then supported Edit and concept-specific actions. Omit “Selected:” and collection
+  suffixes; keep source identity in accessibility and exact-target guards. Do not duplicate
   the old section-header Add. Add does not require selection; other actions do.
 - Keep current data statuses in the rows and remove obsolete action headings.
   The bar is not permission to add universal review/completion/planning commands.
@@ -132,7 +133,7 @@ Test the actual routed header and several rows, not only shared constants:
   slot width. A short Overdue caption's left edge is not the column's left edge.
   Do not use the implementation's new width helper as the test's only oracle.
 - Verify no repeated row mutation controls, one Add, bar below the data scroller,
-  initial/readonly disabling, selected name/list, exact selected action, stale/ABA
+  initial/readonly disabling, plain selected name, exact selected action, stale/ABA
   callback refusal and Add without selection. Exercise narrow split bar groups.
 - Preserve no-overlap, natural text width, row bounds, native sibling bar actions,
   focus/hit targets, current callbacks, no writes and attention/selection pixels.

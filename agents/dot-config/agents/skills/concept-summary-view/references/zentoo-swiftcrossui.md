@@ -50,7 +50,9 @@ row/header centers, narrow/resize-back and actual five-digit text width. See
 `docs/review-area-cards.md` (bounded title and header level) and the newer
 `docs/dashboard-area-action-bar.md` for current product decisions.
 
-The bottom bar is `[+] [−] Selected: Area name · list [Edit] [Mark Reviewed]`.
+The bottom bar is `[+] [−] Area name [Edit] [Mark Reviewed]`. The visible name has
+no “Selected:” prefix or collection suffix; source identity remains in accessible
+control labels and frozen-target admission.
 It is outside the data scroller, observes selection independently, disables target
 mutations without selection, preserves configured `c/dd/e/r`, and revalidates its
 frozen profile/data/selection-transition/record context before fresh dispatch.
@@ -76,7 +78,7 @@ Pointer row/title activation now selects; Enter/`:open` navigates to filtered Ta
   selects; full-text disclosure remains native. Bar review tint uses the selected
   record's same semantic warning role.
 - `ReviewAreaActionBar.swift` and `ReviewAreaWorkflow+SelectionActions.swift`:
-  actual-proposal responsive bar, selected source caption, accessible sibling
+  actual-proposal responsive bar, name-only caption, source-aware accessible sibling
   controls and frozen-target admission. No selection mirroring into Tasks or
   per-selection whole-table rebuild. `AreaActionBarNativeTests` and
   `AreaActionBarContextTests` cover placement, pointer selection, targets,
