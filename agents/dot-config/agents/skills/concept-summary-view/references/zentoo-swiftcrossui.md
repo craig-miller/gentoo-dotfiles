@@ -50,9 +50,11 @@ row/header centers, narrow/resize-back and actual five-digit text width. See
 `docs/review-area-cards.md` (bounded title and header level) and the newer
 `docs/dashboard-area-action-bar.md` for current product decisions.
 
-The bottom bar is `[+] [−] Area name [Edit] [Mark Reviewed]`. The visible name has
-no “Selected:” prefix or collection suffix; source identity remains in accessible
-control labels and frozen-target admission.
+The bottom bar is `Area name [+] [−] [clock/check] [pencil] <spacer>`. Natural-width
+name (up to 280) and 8-point gaps keep every control left-aligned. Review/Edit are
+44×32 icon buttons with effective tooltips; Minus is normal foreground, not red.
+The visible name has no “Selected:” prefix or collection suffix; source identity
+remains in accessible control labels and frozen-target admission.
 It is outside the data scroller, observes selection independently, disables target
 mutations without selection, preserves configured `c/dd/e/r`, and revalidates its
 frozen profile/data/selection-transition/record context before fresh dispatch.

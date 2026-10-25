@@ -12,7 +12,7 @@ Upper:                       Work group
 Lower:  Concept | Attention | Measure A | Measure B | State | spare
 Data:   Name    | signal    | number    | number    | value | spare
 
-Below:  [+] [−] | name | [Edit] [supported domain actions]
+Below:  name | [+] [−] [supported domain icons] [edit icon] <spacer>
 ```
 
 The drawing is schematic: each group spans exactly its own leaf columns. A concept
@@ -99,9 +99,12 @@ text carry data signals.
 ## Shared selection action bar
 
 - Place one leading-aligned bar **beneath/outside the list scroller** so it stays
-  reachable on long pages. Start with Add/Remove, show only the selected name,
-  then supported Edit and concept-specific actions. Omit “Selected:” and collection
-  suffixes; keep source identity in accessibility and exact-target guards. Do not duplicate
+  reachable on long pages. Order it **name, Add, Minus, supported domain action
+  icons, Edit icon, trailing spacer**. Measure the name naturally up to 280; use
+  8-point gaps and no flexible space between controls. Review/Edit are icon-only
+  with effective tooltips; Minus uses normal foreground while still requesting
+  confirmation. Omit “Selected:” and collection suffixes; keep source identity
+  in accessibility and exact-target guards. Do not duplicate
   the old section-header Add. Add does not require selection; other actions do.
 - Keep current data statuses in the rows and remove obsolete action headings.
   The bar is not permission to add universal review/completion/planning commands.

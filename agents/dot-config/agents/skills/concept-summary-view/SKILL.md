@@ -74,10 +74,12 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
 - Default to **data-only rows plus one selection action bar beneath the list**.
   Keep statuses visible in the row; do not repeat Edit/review/delete buttons or
   their column captions in every row. Keep any needed in-row disclosure separate.
-- Put Add/Remove at the leading edge of the bar, followed by a visible selected
-  name-only caption (no “Selected:” prefix or collection suffix) and supported
-  Edit/domain actions. Keep actual list/source context in accessibility and target
-  guards rather than visible caption clutter. Add needs a writable
+- Order the bar **name → Add → Minus → supported domain action icons → Edit icon
+  → trailing spacer**. Keep everything leading-aligned, with natural-width name
+  (capped at 280) and 8-point gaps, not flexible space between controls. Review/Edit
+  use recognizable icons with effective tooltips; Minus uses normal foreground.
+  The name has no “Selected:” prefix or collection suffix. Keep actual list/source
+  context in accessibility and target guards, not visible clutter. Add needs a writable
   destination, not selection; disable target-dependent actions without selection.
   Move the old section Add here rather than duplicating it. Remove requests the
   existing named confirmation, never an immediate destructive write.
