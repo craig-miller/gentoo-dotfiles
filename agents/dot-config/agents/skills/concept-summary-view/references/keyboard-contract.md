@@ -10,7 +10,7 @@ migration of all application keyboard behavior.
 
 Maintain named, feature-scoped actions with eligibility and one dispatch path:
 
-1. Native buttons/menus/pointer activation.
+1. Native selected-item bar buttons/menus; pointer row activation selects.
 2. Configurable normal-mode key sequences.
 3. The app's command mode, ordinarily entered with `:`.
 
@@ -74,7 +74,10 @@ recipe for each summary concept:
    expose display eligibility plus a semantic dispatch function. Buttons, normal
    keys and parsed `:` commands call that function. Fresh dispatch reruns owner,
    membership, revision, lock and uncertainty guards even if display eligibility
-   was cached. Reuse existing editors, modal ownership and mutation backends.
+   was cached. A selected-item bar freezes the visible record plus scope and
+   selection-transition context; stale/ABA callbacks refuse instead of finding a
+   different current target at activation. Reuse existing editors, modal ownership
+   and mutation backends.
 4. **Compose the default map.** Start from the supported navigation vocabulary
    above; add only supported common actions and approved domain mnemonics. Check
    both exact collisions and prefix conflicts against app/pane/native ownership.

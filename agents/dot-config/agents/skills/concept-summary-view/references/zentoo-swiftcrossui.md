@@ -26,18 +26,20 @@ structure, not the superseded title-fills-all-spare-width behavior.
 
 ## Current header and spacing example
 
-The Area header has two levels: Active, Someday/Maybe and Review group captions
-above their leaf captions. **Area, Overdue and Edit sit on the lower level** with
-Projects/Tasks, Review and Mark Reviewed. `ReviewAreaTableHeader` bottom-aligns its
+The Area header has two levels: Active and Someday/Maybe group captions above
+their Projects/Tasks leaves. **Area, Overdue and Review sit on the lower level**.
+Edit and Mark Reviewed are no longer columns; their mutations live in one selected
+bottom bar. `ReviewAreaTableHeader` bottom-aligns its
 outer `HStack`; grouped `VStack`s use a 2-point level gap. Do not vertically center
 the standalone headings across both levels or copy a measured offset.
 
 `ReviewAreaTableLayout.titleWidth(in:)` caps the desktop title at **280 points**
 and reserves non-title cells, all gaps, 12-point side insets and the 5-point
 attention edge before shrinking. The list passes each real proposal to the header
-and row; both append trailing flexible space after Edit. The row surface and notes
-still span the pane. Current example widths are: count 72, Overdue 184, Review 88,
-Mark Reviewed 88 (44×32 button), Edit 44, column gaps 8. Header attention-edge space
+and row; both append trailing flexible space after Review data. Row surfaces and
+notes still span the pane. Current example widths are count 72, Overdue 184,
+Review 88 and column gaps 8; obsolete action widths are not reserved in the table.
+Header attention-edge space
 is transparent. Narrow labelled details replace columns below the existing
 850-point Area breakpoint. These measurements illustrate the proven arrangement;
 other concepts choose their own actual columns/captions and fit breakpoint.
@@ -45,7 +47,14 @@ other concepts choose their own actual columns/captions and fit breakpoint.
 Native evidence is in `AreaListNativeTests`: title-to-Overdue **column** edge,
 constant wide-screen positions, two header levels including standalone captions,
 row/header centers, narrow/resize-back and actual five-digit text width. See
-`docs/review-area-cards.md` (bounded title and header level) for product decisions.
+`docs/review-area-cards.md` (bounded title and header level) and the newer
+`docs/dashboard-area-action-bar.md` for current product decisions.
+
+The bottom bar is `[+] [−] Selected: Area name · list [Edit] [Mark Reviewed]`.
+It is outside the data scroller, observes selection independently, disables target
+mutations without selection, preserves configured `c/dd/e/r`, and revalidates its
+frozen profile/data/selection-transition/record context before fresh dispatch.
+Pointer row/title activation now selects; Enter/`:open` navigates to filtered Tasks.
 
 ## Small existing implementation seams
 
@@ -58,13 +67,20 @@ row/header centers, narrow/resize-back and actual five-digit text width. See
   participates in native child insertion/removal and layout results.
 - `ReviewAreaTableLayout.swift` and `ReviewAreaTableHeader.swift`: shared capped
   title width, lower-level standalone headings, grouped captions, trailing spare
-  space, centered cells and independently sized action columns.
+  space and centered data cells, with mutation controls outside the table.
   Treat the particular columns and breakpoints as example values, not a template
   to duplicate unchanged.
 - `ReviewAreaCardView.swift`: despite its historical name, the shared renderer
   includes flat list rows and narrow labelled details. Current data cells are
-  text/numeric. Action controls remain native siblings; due action tint uses the
-  same warning role as the status text.
+  text/numeric and routed list rows have no edit/review controls. Pointer activation
+  selects; full-text disclosure remains native. Bar review tint uses the selected
+  record's same semantic warning role.
+- `ReviewAreaActionBar.swift` and `ReviewAreaWorkflow+SelectionActions.swift`:
+  actual-proposal responsive bar, selected source caption, accessible sibling
+  controls and frozen-target admission. No selection mirroring into Tasks or
+  per-selection whole-table rebuild. `AreaActionBarNativeTests` and
+  `AreaActionBarContextTests` cover placement, pointer selection, targets,
+  readonly/ABA/context/lock safety, tints and consent-only Minus.
 - `ReviewAreaMetricsView.swift`: named count descriptions, table cells and narrow
   labels. `ReviewMarkReviewedIcon.swift` shows a theme-aware native icon action.
 - `ReviewGtkAreaNavigation.swift`: controller installed once, current callback

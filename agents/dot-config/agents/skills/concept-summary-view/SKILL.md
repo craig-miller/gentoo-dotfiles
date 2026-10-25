@@ -1,6 +1,6 @@
 ---
 name: concept-summary-view
-description: "Design, build, or refine compact workflow-oriented concept summary tables: two-level header bars, bounded title columns, tight shared spacing, native actions, responsive layouts, configurable Neovim-like shortcuts, concept-specific semantic commands, app command mode, and native UI regression tests. Use for Areas, Projects, initiatives, responsibilities, and comparable workflow dashboards."
+description: "Design, build, or refine compact workflow-oriented concept summary tables: two-level header bars, bounded title columns, tight shared spacing, selected-item action bars, responsive layouts, configurable Neovim-like shortcuts, concept-specific semantic commands, app command mode, and native UI regression tests. Use for Areas, Projects, initiatives, responsibilities, and comparable workflow dashboards."
 ---
 
 # Concept summary views
@@ -47,11 +47,11 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
 - Default to full-width flat rows for comparable summaries: ordinary view surface,
   subtle separators, no card gutters or unnecessary rounded boxes.
 - Cap the desktop title column at **280 points** by default; shrink it when needed
-  to preserve the fixed columns. Put surplus width **after the last action column**,
+  to preserve the fixed columns. Put surplus width **after the last data column**,
   not between the title and status fields. Keep row surfaces and secondary
   descriptions full-width. Use the same title-width calculation in header and rows.
 - Start with **8-point column gaps** and **2-point spacing between header levels**.
-  Give comparable counts, status fields and action columns shared widths across
+  Give comparable counts and status fields shared widths across
   every row and header. Define geometry once; group widths include child gaps.
 - Center numeric values beneath centered titles. Center status values, their
   headings and icon actions too. Keep primary names/description text leading-aligned.
@@ -62,7 +62,7 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
   counts, let digit lengths shift a column, or allocate large unexplained gaps.
   An icon's hit target and its column width are separate concerns.
 - Use a **two-level header**: group captions on the upper row; leaf captions on the
-  lower row. Standalone title, attention/status and Edit captions align with the
+  lower row. Standalone title and attention/status captions align with the
   **lower row**, not midway between levels. Bottom-align the outer header stack;
   do not fake alignment with hardcoded vertical offsets. Keep group captions level.
   Use concise approved copy and retain full descriptive help.
@@ -71,9 +71,20 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
 
 ## 3. Signals and actions
 
-- Keep data cells text/numeric by default. Craig's established preference is icons
-  in **action cells only**, not repeated clipboard/checkmark/clock decoration beside
-  each value. Do not reintroduce badges without an explicit reason/request.
+- Default to **data-only rows plus one selection action bar beneath the list**.
+  Keep statuses visible in the row; do not repeat Edit/review/delete buttons or
+  their column captions in every row. Keep any needed in-row disclosure separate.
+- Put Add/Remove at the leading edge of the bar, followed by a visible selected
+  name/list caption and supported Edit/domain actions. Add needs a writable
+  destination, not selection; disable target-dependent actions without selection.
+  Move the old section Add here rather than duplicating it. Remove requests the
+  existing named confirmation, never an immediate destructive write.
+- Single pointer activation selects without navigating away so the bar is usable;
+  Enter/command-mode Open retains the approved primary navigation. Preserve the
+  app's established behavior if a different workflow was explicitly approved.
+- Keep data cells text/numeric. Icons, when used, identify **bar actions**, not
+  repeated clipboard/checkmark/clock decoration beside values. Do not reintroduce
+  decorative badges or per-row action columns without an explicit request.
 - Reuse semantic warning/destructive/normal colors. Color must have a readable
   reason; neutral is not proof of health. Do not invent completion rings or health
   percentages for ongoing responsibilities.
@@ -81,11 +92,15 @@ Group / heading | meaning | width/alignment | zero/unknown policy | action/permi
   role as its status label, not a separately chosen yellow. Resolve the current
   state on update and return to the normal foreground when no longer due.
 - Use clear, recognizable action glyphs. Native controls stay keyboard-focusable,
-  at least 44×32, with contextual accessibility labels and hover help. Columns may
-  be wider to fit headings; center the actual control within them.
-- Row navigation, Edit, review and any disclosure/delete controls must be siblings,
-  never nested buttons. A pointer surface must ignore child controls and their
-  descendants. Preserve native text/modal/global key ownership.
+  at least 44×32, with contextual accessibility labels and hover help. Text actions
+  may need wider targets; adapt the bar rather than restoring action columns.
+- Bar controls are native siblings, never inside a row-navigation button. Row
+  pointer surfaces ignore native disclosure/child controls and descendants.
+  Preserve text/modal/global key ownership. Freeze the bar's visible target and
+  validate profile/source epoch, record revision and selection-transition identity
+  at activation; A→B→A must not revive a stale callback or silently retarget it.
+  Observe selection in the small bar, not the entire table; keep height stable
+  across selection changes and adapt its groups to actual narrow proposals.
 - Only an explicit user action changes durable state. Opening a row, displaying a
   view or editing text must not silently reset a review/assessment timestamp.
 - Recheck current profile, ownership, identity and revision on action dispatch.
@@ -148,7 +163,9 @@ for live application input or provider/personal-data writes.
   numeric text width, row heights and nonoverlap. Measure column slots, not just
   a centered caption's glyph bounds. Exercise zero-width probing, desktop widths,
   narrow fallback, resize back, absent/present signals and different digit lengths.
-- Assert action-only icons, labels/tooltips, hit targets, focus, sibling controls,
+- Assert data-only rows, one bar, no duplicate Add, visible selected target,
+  initial/readonly disabling, stale/ABA callback refusal, narrow bar nonoverlap,
+  labels/tooltips, hit targets, focus, sibling controls,
   one controller per reused surface and current callbacks after record/profile
   changes. Check actual color values under a scoped synthetic palette for warning
   and normal states; independently check custom glyph silhouettes when needed.

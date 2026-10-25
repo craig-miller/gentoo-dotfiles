@@ -8,25 +8,28 @@ review policy merely to fill the template.
 ## Two header levels
 
 ```text
-Upper:                       Work group          Assessment group
-Lower:  Concept | Attention | Measure A | Measure B | State | Action | Edit | spare
-Data:   Name    | signal    | number    | number    | value | icon   | icon | spare
+Upper:                       Work group
+Lower:  Concept | Attention | Measure A | Measure B | State | spare
+Data:   Name    | signal    | number    | number    | value | spare
+
+Below:  [+] [−] | Selected: name · list | [Edit] [supported domain actions]
 ```
 
 The drawing is schematic: each group spans exactly its own leaf columns. A concept
-may have several groups, different measures/actions, or no assessment group.
+may have several data groups, different measures, or no assessment data. Mutation
+actions belong to the shared selected-item bar, not repeated data columns.
 
 - Group captions occupy the upper row at a shared vertical level.
 - **Every leaf caption belongs on the lower row.** Standalone Concept/name,
-  Attention/Overdue and Edit have no group caption, but still align vertically
-  with the lower captions, such as State and Mark Reviewed—not the midpoint of
+  Attention/Overdue and single State/Review fields have no group caption, but
+  still align vertically with lower measure captions—not the midpoint of
   the combined header height.
 - Build each group as a vertical stack: centered group caption, 2-point gap,
   horizontal leaf captions. Use the same font/line-height for peer leaf captions.
   Bottom-align the outer horizontal stack. Do not insert a fake group label,
   a magic 9-point offset or a hidden interactive control to position a caption.
-- Center group captions over their complete group width. Center counts, statuses,
-  action captions and their row contents. Keep the concept/name caption and names
+- Center group captions over their complete group width. Center counts, statuses
+  and their row contents. Keep the concept/name caption and names
   leading-aligned. Preserve actual accessibility labels and contextual help.
 
 SwiftCrossUI composition, schematically:
@@ -37,7 +40,7 @@ HStack(alignment: .bottom, spacing: 8) {
     attentionCaption.frame(width: attentionWidth, alignment: .center)
     VStack(spacing: 2) { groupCaption; HStack(spacing: 8) { leafCaptions } }
     ...other groups...
-    editCaption.frame(width: editWidth, alignment: .center)
+    stateCaption.frame(width: stateWidth, alignment: .center)
     Spacer(minLength: 0)
 }
 ```
@@ -59,15 +62,14 @@ or an explicitly approved design change):
 | Row name | **15-point semibold**, at most two lines |
 | Secondary description | **12-point**, leading-aligned |
 | Count slot | **72**, centered; preserve five-digit natural text width |
-| Short status / captioned action slot | **88**, centered, if its caption fits |
-| Icon-only action slot and native target | **44 × at least 32** |
+| Short status slot | **88**, centered, if its caption fits |
+| Bar action's minimum native target | **44 × at least 32** |
 | Horizontal row/header inset | **12** per side |
 | Vertical row/header inset | **6** for the compact presentation |
 
-An attention slot must fit its truthful text; an action slot may need more width
-than its icon's target. For example, Zentoo Areas reserves 184 for Overdue and 88
-for the Mark Reviewed caption while keeping its actual button 44×32. Those are
-content-specific examples, not mandatory columns in every concept.
+An attention slot must fit its truthful text. For example, Zentoo Areas reserves
+184 for Overdue and 88 for Review **data**; Edit/Mark Reviewed are no longer table
+columns. These are content-specific examples, not mandatory columns elsewhere.
 
 1. Define column widths and group membership in **one shared geometry owner**.
    A group width is the sum of child widths plus each internal gap exactly once.
@@ -76,9 +78,9 @@ content-specific examples, not mandatory columns in every concept.
    remaining title budget at 280. Header and rows call the same calculation.
    Include the gap before the trailing flexible spacer. Do not derive widths from
    a zero/minimum-size probe, stale captured geometry or a delayed resize callback.
-3. Put a flexible spacer **after the final action**, in both header and data main
+3. Put a flexible spacer **after the final data column**, in header and data main
    lines. Extra desktop width must not keep stretching the name field or move
-   the metric/action block farther away. Never distribute spare width between
+   the metric/status block farther away. Never distribute spare width between
    each column with multiple spacers or equal fractions of the whole pane.
 4. Keep the row surface, separators, attention edge, pointer hit surface and
    secondary notes/descriptions full-width. Cap the **main-line title field**,
@@ -94,6 +96,26 @@ ordinary semantic header surface with a subtle bottom separator, not another car
 or toolbar. No decorative data icons: icons identify native actions; color and
 text carry data signals.
 
+## Shared selection action bar
+
+- Place one leading-aligned bar **beneath/outside the list scroller** so it stays
+  reachable on long pages. Start with Add/Remove, show the selected name and actual
+  source/list, then supported Edit and concept-specific actions. Do not duplicate
+  the old section-header Add. Add does not require selection; other actions do.
+- Keep current data statuses in the rows and remove obsolete action headings.
+  The bar is not permission to add universal review/completion/planning commands.
+- Pointer activation selects without leaving the list; retain primary-open via
+  Enter/command mode. Reuse semantic dispatch and effective hints. Remove opens
+  existing named confirmation and does not save a draft or delete immediately.
+- Observe frequent selection only in this small region; keep table data/page
+  observation independent. Freeze the visible action context, including selection
+  transitions, so stale callbacks (including A→B→A) refuse rather than retarget.
+  Cached display eligibility never authorizes an operation.
+- Keep bar height independent of selected name/selection absence. On narrow
+  proposals put the caption above controls, and split action groups into further
+  lines if needed; never let minimum native targets overflow. Preserve native
+  focus and accessible names, current callbacks and readable full context.
+
 ## Native geometry oracles
 
 Test the actual routed header and several rows, not only shared constants:
@@ -103,13 +125,16 @@ Test the actual routed header and several rows, not only shared constants:
 - Each heading and its data share column center/edges; all rows share positions,
   including empty signals, different digit lengths and due/fresh values.
 - At wide proposals, increasing pane width leaves capped title/metric coordinates
-  fixed and adds space only after the final action. Test smaller desktop, narrow,
+  fixed and adds space only after the final data column. Test smaller desktop, narrow,
   resize-back and initial zero-probe paths too.
 - Distinguish a **column slot** from its centered caption's natural glyph bounds.
   Use an independently measured slot, or its native center minus half the admitted
   slot width. A short Overdue caption's left edge is not the column's left edge.
   Do not use the implementation's new width helper as the test's only oracle.
-- Preserve no-overlap, natural text width, row bounds, native sibling actions,
+- Verify no repeated row mutation controls, one Add, bar below the data scroller,
+  initial/readonly disabling, selected name/list, exact selected action, stale/ABA
+  callback refusal and Add without selection. Exercise narrow split bar groups.
+- Preserve no-overlap, natural text width, row bounds, native sibling bar actions,
   focus/hit targets, current callbacks, no writes and attention/selection pixels.
 
 For committed native allocation/scroll checks, require actual frame evidence when
