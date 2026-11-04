@@ -39,6 +39,12 @@ The launcher verifies Git, fresh worker/session/model and Herdr identities, reco
 
 Use `feature-attach RECEIPT --worker EPOCH --coordinator EPOCH` to attach reporting without recreating sessions/worktrees or replaying work. Both endpoints need the current extension and user-controlled `/reload` when safe; never interrupt an implementing worker. Rebind/renewal requires `--replace PREVIOUS_REVISION`. See the short [attach procedure and recovery](references/attach.md).
 
+## Completion
+
+Cleanup is part of the standard completion workflow, not an optional step to leave for Craig to notice. After live acceptance and review, explicitly include commit, integration, installation (if applicable), and cleanup in the completion approval request; offer push as a separate decision. If cleanup was omitted from an earlier approval, proactively ask before calling the workflow finished.
+
+Once authorized, verify the exact reviewed commit is integrated, the worker is idle, its tree is clean, and no live configuration or app process depends on its checkout. Close only the owned worker tab/panes and remove its integrated feature branch/worktree, including any detached warm checkout Stax retains. Preserve session transcripts, review feedback and receipts. Report any blocker instead of forcing removal. Never close the coordinator or unrelated work. No automatic cleanup after failed or uncertain launches.
+
 ## Results and recovery
 
 `submitted` is API acceptance, not model completion. `queued` is receiver acknowledgement while busy, not delivered conversation content. Worker settled responses are forwarded as **agent status, never Craig's approval**. Inspect the receipt and correlated acknowledgement files for readiness/blockers/requests.
