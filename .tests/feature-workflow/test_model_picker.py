@@ -75,12 +75,13 @@ class ModelPickerTests(unittest.TestCase):
         window = Window()
         keys = iter([('paste', 'test-name'), '\t', ('paste', 'Plan\nonly'), '\x10', '\x13'])
         launched = []
-        def launch(*args): launched.append(args); return {'tab': 'w1:t2'}
+        def launch(*args): launched.append(args); return {'tab': 'w1:t2', 'coordinator': {'tab': 'w1:t3'}}
         with patch.dict(p.form.__globals__, read_key=lambda w: next(keys), model_picker=lambda *args: ('beta', 'same'), execute_launch=launch), \
              patch.object(p.threading, 'Thread', ImmediateThread), patch.object(curses, 'curs_set'), \
-             patch.object(curses, 'flushinp'), patch.object(p.core, 'herdr'):
+             patch.object(curses, 'flushinp'), patch.object(p.core, 'herdr') as herdr:
             p.form(window, 'w1:p1', {'repo': '/repo', 'base': 'main'})
-        self.assertEqual(launched[0][2:], ('test-name', 'Plan\nonly', ('beta', 'same')))
+        self.assertEqual(launched[0][2:], ('test-name', 'Plan\nonly', ('beta', 'same'), None))
+        herdr.assert_not_called()  # Focus is owned by the verified launcher.
         self.assertIn('beta/same', window.drawn)
 
     def test_launch_passes_model_as_separate_argv_without_changing_brief(self):
@@ -92,6 +93,24 @@ class ModelPickerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state, patch.dict(p.os.environ, XDG_STATE_HOME=state), \
              patch.object(p.core, 'preflight', return_value=admitted), patch.object(p.subprocess, 'run', side_effect=run):
             self.assertTrue(p.execute_launch('w1:p1', admitted, 'test', 'Plan\nonly', ('beta', 'accounts/x/model'))['ok'])
+
+    def test_existing_coordinator_picker_and_cancellation_keep_explicit_identity(self):
+        existing = {'epoch': 'selected-epoch', 'session': 'session', 'tab': 'w1:t7', 'name': 'Control', 'busy': True}
+        for keys, expected in (([curses.KEY_DOWN, '\n'], existing), ([curses.KEY_DOWN, '\x1b'], None)):
+            window = Window()
+            key_iter = iter(keys)
+            with patch.object(p.core, 'coordinators', return_value=[existing]), \
+                 patch.dict(p.coordinator_picker.__globals__, read_key=lambda w: next(key_iter)), patch.object(curses, 'curs_set'):
+                self.assertEqual(p.coordinator_picker(window, {'common': '/git'}, None, p.PopupStyle()), expected)
+            self.assertTrue(any('Control' in text and 'w1:t7' in text for text in window.drawn))
+        admitted = {'repo': '/repo', 'base': 'main', 'common': '/git', 'require_sibling': False}
+        with tempfile.TemporaryDirectory() as state, patch.dict(p.os.environ, XDG_STATE_HOME=state), \
+             patch.object(p.core, 'preflight', return_value=admitted), \
+             patch.object(p.core, 'coordinator_identity', return_value=existing), \
+             patch.object(p.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='{"ok":true}', stderr='')) as run:
+            p.execute_launch('w1:p1', admitted, 'test', 'Plan', coordinator=existing)
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--coordinator') + 1], 'selected-epoch')
 
     def test_discovery_failure_preserves_current_model(self):
         window = Window()

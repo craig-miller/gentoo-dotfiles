@@ -9,6 +9,7 @@
 | Tab / Shift-Tab | Switch between Name and Brief. |
 | Enter in Brief | Insert a newline; never launch. |
 | Ctrl-P | Open the model picker. Type to fuzzy-search provider/model IDs; arrows or Page Up/Down select, Enter accepts, Escape cancels. |
+| Ctrl-O | Choose New session or a compatible registered Existing coordinator. Escape keeps the prior choice. |
 | Ctrl-S | Revalidate and launch. |
 | Escape | Cancel before launch, or close a failed-launch form. |
 
@@ -20,7 +21,11 @@ The form inherits the terminal's Noctalia palette. Reopen it after updating its 
 
 The popup freezes the originating pane and directory, preserves the multiline brief, and calls the shared launcher with explicit origin/provider/model arguments. A planning brief authorizes planning, not implementation.
 
-After verified submission it focuses the worker tab and closes. Submission is not task completion. A failure keeps the draft and receipt visible and disables repeated submission; inspect existing resources before retrying. See [launcher recovery](design.md).
+The default is the compatible registered coordinator occupying the exact invoking pane, captured before the form opens. Registration must match the invoking Herdr socket/server lifetime, actual Pi session/file, epoch and Git common directory. Later focus changes never redirect it. Shell and implementation-worker origins default to New session; workers are never offered as coordinators.
+
+An unregistered Pi origin shows the user-controlled `/reload` prerequisite. Reload that conversation and reopen the form, or use Ctrl-O to explicitly choose New session/another compatible coordinator. Cancellation preserves the prior selection. Existing choices show their destination session/tab; stale/replaced/closed choices block submission rather than falling back. New coordinator model remains `openai-codex/gpt-6-astra`, independent of the worker picker.
+
+After verified submission it focuses the coordinator tab and closes. Submission is not task completion. A failure keeps the draft and receipt visible and disables repeated submission; inspect existing resources before retrying. See [launcher recovery](design.md).
 
 ## Install and check
 
@@ -31,7 +36,10 @@ stow --dotfiles --no-folding -R agents pi herdr
 herdr server reload-config
 # Regression tests (no desktop windows):
 python3 -B -m unittest discover -s .tests/feature-workflow -p 'test_*.py' -v
-bun test ./.tests/feature-workflow/feature.test.ts
+bun test ./.tests/feature-workflow/feature.test.ts ./.tests/feature-workflow/coordination.test.ts ./.tests/feature-workflow/attachment.test.ts
+# Real Herdr/Pi mechanics with a deterministic offline fixture provider:
+python3 -B .tests/feature-workflow/herdr_coordinator_smoke.py
+python3 -B .tests/feature-workflow/herdr_coordinator_smoke.py --attachment
 # Optional isolated Herdr UI check; no worker/model request:
 python3 -B .tests/feature-workflow/herdr_popup_smoke.py --ui-only
 ```

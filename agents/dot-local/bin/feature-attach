@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Explicit reporting-only attachment of existing feature sessions; never launches or replays work."""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import runpy
+import sys
+import time
+import uuid
+from types import SimpleNamespace
+
+sys.dont_write_bytecode = True
+core = SimpleNamespace(**runpy.run_path(str(Path(__file__).resolve().with_name('feature-start'))))
+
+
+def reporting_directory(session):
+    return core.state_root() / 'reporting' / hashlib.sha256(session.encode()).hexdigest()
+
+
+def validate_receipt(path, worker_epoch, coordinator_epoch):
+    data = path.read_bytes()
+    receipt = json.loads(data)
+    common = str(Path(core.run(['git', '-C', receipt['cwd'], 'rev-parse', '--path-format=absolute', '--git-common-dir'])).resolve())
+    source_common = str(Path(core.run(['git', '-C', receipt['repo'], 'rev-parse', '--path-format=absolute', '--git-common-dir'])).resolve())
+    if common != source_common or not receipt.get('nonce'):
+        raise core.LaunchError('Receipt repository/feature mismatch')
+    worker = core.session_identity(worker_epoch, common, 'worker')
+    coordinator = core.session_identity(coordinator_epoch, common, 'coordinator')
+    if any('reporting-attach-v1' not in endpoint.get('capabilities', []) for endpoint in (worker, coordinator)):
+        raise core.LaunchError('Both endpoints need the attachment extension: user-controlled /reload when safe, then explicitly reselect their new epochs')
+    if worker['session'] == coordinator['session'] or worker['pane'] == coordinator['pane']:
+        raise core.LaunchError('Worker and coordinator must be independent sessions')
+    if worker['session'] != receipt['session'] or Path(worker['cwd']).resolve() != Path(receipt['cwd']).resolve():
+        raise core.LaunchError('Receipt does not identify this worker/session/worktree')
+    recorded_file = receipt.get('worker', {}).get('session_file')
+    if recorded_file and recorded_file != worker['session_file']:
+        raise core.LaunchError('Receipt worker session file mismatch')
+    branch = core.run(['git', '-C', worker['cwd'], 'branch', '--show-current'])
+    top = core.run(['git', '-C', worker['cwd'], 'rev-parse', '--show-toplevel'])
+    if branch != receipt['branch'] or Path(top).resolve() != Path(receipt['cwd']).resolve():
+        raise core.LaunchError('Worker branch/worktree differs from receipt')
+    # No cleanliness or initial-HEAD check: legitimate feature progress is preserved.
+    return receipt, common, worker, coordinator, hashlib.sha256(data).hexdigest()
+
+
+def acknowledgement(directory, request, role, stage, timeout=30):
+    value = core.wait_json(directory / f'{stage}-{role}.json', timeout=timeout)
+    expected = {'revision': request['revision'], 'feature': request['feature'], 'epoch': request[role]['epoch'],
+                'worker_epoch': request['worker']['epoch'], 'coordinator_epoch': request['coordinator']['epoch'],
+                'role': role, 'status': stage}
+    if any(value.get(k) != v for k, v in expected.items()):
+        raise core.LaunchError(f'{role} {stage} not acknowledged: {value}')
+    return value
+
+
+def attach(args):
+    if os.environ.get('HERDR_ENV') != '1':
+        raise core.LaunchError('Run inside the same Herdr instance as both endpoints')
+    receipt_path = Path(args.receipt).resolve(strict=True)
+    receipt, common, worker, coordinator, digest = validate_receipt(receipt_path, args.worker, args.coordinator)
+    root = reporting_directory(worker['session'])
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (root / 'attach.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise core.LaunchError('An attachment operation is already active for this worker')
+        pointer = root / 'current.json'
+        previous = json.loads(pointer.read_text()) if pointer.exists() else None
+        if (previous and args.replace != previous['revision']) or (not previous and args.replace):
+            raise core.LaunchError(f"Explicit --replace {previous['revision'] if previous else '(none)'} required; no automatic adoption/retry")
+        if previous and previous['feature'] != receipt['nonce']:
+            raise core.LaunchError('Worker already belongs to a different feature')
+        revision = str(uuid.uuid4())
+        directory = root / 'revisions' / revision
+        directory.mkdir(parents=True, mode=0o700)
+        request_path = directory / 'request.json'
+        request = {'version': 1, 'revision': revision, 'feature': receipt['nonce'], 'previous': previous,
+                   'created': time.time(), 'receipt': str(receipt_path), 'receipt_sha256': digest,
+                   'common': common, 'cwd': str(Path(receipt['cwd']).resolve()), 'branch': receipt['branch'],
+                   'worker': worker, 'coordinator': coordinator,
+                   'scope': 'Reporting only. No assignment replay, implementation or other approval granted.'}
+        core.write_json(request_path, request)
+        # Intent is durable before either endpoint acts. Pending/uncertain revisions
+        # pause legacy reports too, so a rebind cannot silently report to the old owner.
+        core.write_json(pointer, {'revision': revision, 'request': str(request_path), 'feature': request['feature']})
+        try:
+            for role in ('worker', 'coordinator'):
+                target = request[role]
+                core.write_json(core.state_root() / 'inbox' / target['epoch'] / (revision + '.binding.json'),
+                                {'revision': revision, 'request': str(request_path), 'target': target, 'role': role})
+            prepared = {role: acknowledgement(directory, request, role, 'prepared') for role in ('worker', 'coordinator')}
+            if validate_receipt(receipt_path, args.worker, args.coordinator)[4] != digest:
+                raise core.LaunchError('Receipt changed during attachment')
+            core.write_json(directory / 'commit.json', {'revision': revision, 'feature': request['feature']})
+            active = {role: acknowledgement(directory, request, role, 'active') for role in ('worker', 'coordinator')}
+            if validate_receipt(receipt_path, args.worker, args.coordinator)[4] != digest:
+                raise core.LaunchError('Receipt changed during attachment')
+            ready = {'revision': revision, 'feature': request['feature'], 'worker_epoch': worker['epoch'],
+                     'coordinator_epoch': coordinator['epoch'], 'status': 'ready'}
+            core.write_json(directory / 'ready.json', ready)
+            result = {'ok': True, **ready, 'request': str(request_path), 'worker': worker, 'coordinator': coordinator,
+                      'prepared': prepared, 'active': active,
+                      'note': 'Future settled reports only; no original brief or old report was resent. No new permissions.'}
+            core.write_json(directory / 'result.json', result)
+            return result
+        except BaseException as error:
+            core.write_json(directory / 'result.json', {'ok': False, 'status': 'uncertain', 'revision': revision,
+                            'error': str(error), 'request': str(request_path)})
+            raise core.LaunchError(f'Attachment not confirmed: {error}. Inspect {directory}; no replay/retry. Explicit --replace {revision} is required for another attempt.') from error
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('receipt', nargs='?', help='Existing launch receipt; never modified')
+    parser.add_argument('--worker', help='Explicit current worker registration epoch')
+    parser.add_argument('--coordinator', help='Explicit current coordinator registration epoch')
+    parser.add_argument('--replace', help='Exact previous attachment revision, including failed/uncertain attempts')
+    parser.add_argument('--list-workers', action='store_true')
+    parser.add_argument('--repo', default=os.getcwd())
+    args = parser.parse_args()
+    os.umask(0o077)
+    try:
+        if args.list_workers:
+            if os.environ.get('HERDR_ENV') != '1':
+                raise core.LaunchError('Run inside Herdr')
+            common = core.run(['git', '-C', args.repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
+            items = []
+            for path in (core.state_root() / 'sessions').glob('*.json'):
+                try: items.append(core.session_identity(path.stem, common, 'worker'))
+                except core.LaunchError: pass
+            print(json.dumps(items, indent=2))
+            return 0
+        if not args.receipt or not args.worker or not args.coordinator:
+            parser.error('receipt, --worker and --coordinator are required')
+        print(json.dumps(attach(args), indent=2))
+        return 0
+    except (Exception, KeyboardInterrupt) as error:
+        print(json.dumps({'ok': False, 'error': str(error), 'note': 'Both endpoints require the current attachment extension and user-controlled /reload when safe. No resources launched, no original receipt edited, no assignment/report replay.'}, indent=2), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

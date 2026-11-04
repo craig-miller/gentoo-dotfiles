@@ -109,6 +109,12 @@ with tempfile.TemporaryDirectory(prefix='feature-popup-native-') as temporary:
         until(fd, lambda: 'New feature' in screen(transcript))
         assert 'Preserved' in screen(transcript)
         print('PASS Ctrl-P discovers Pi models, fuzzy search/accept/cancel preserve draft', flush=True)
+        os.write(fd, b'\x0f')
+        until(fd, lambda: 'New session' in screen(transcript) and 'Enter: accept' in screen(transcript))
+        os.write(fd, b'\x1b')
+        until(fd, lambda: 'New feature' in screen(transcript))
+        assert 'Preserved' in screen(transcript)
+        print('PASS explicit coordinator picker cancels without losing draft', flush=True)
         os.write(fd, b'\x1b'); time.sleep(0.3)
         sentinel = tmp / 'cancelled'
         os.write(fd, ('printf done > ' + shlex.quote(str(sentinel)) + '\n').encode())
@@ -165,10 +171,10 @@ with tempfile.TemporaryDirectory(prefix='feature-popup-native-') as temporary:
         Path('/tmp/feature-popup-native-snapshot.json').write_text(json.dumps(snapshot, indent=2))
         # Snapshot nests state in snapshot on this Herdr version.
         snapshot = snapshot.get('snapshot', snapshot)
-        assert snapshot['focused_tab_id'] == record['tab'], snapshot
+        assert snapshot['focused_tab_id'] == record['coordinator']['tab'], snapshot
         assert not run('git', 'status', '--porcelain', cwd=Path(record['cwd'])).strip()
         Path('/tmp/feature-popup-native-worker.log').write_text(output)
-        print('PASS Ctrl-S launches exact brief in verified worker and focuses its tab', flush=True)
+        print('PASS Ctrl-S launches exact brief in verified worker and focuses coordinator', flush=True)
     finally:
         drain(fd)
         log = '/tmp/feature-popup-native-ui.log' if '--ui-only' in sys.argv else '/tmp/feature-popup-native.log'

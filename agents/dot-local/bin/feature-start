@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tomllib
 import sys
@@ -61,6 +62,10 @@ def validate_identity(expected, observed, agent):
     for key in ("nonce", "cwd", "branch", "head", "session", "provider", "model", "pane", "tab", "workspace"):
         if observed.get(key) != expected[key]:
             raise LaunchError(f"Worker identity mismatch: {key}")
+    if observed.get("instance") != expected.get("instance") or observed.get("instance") != herdr_instance():
+        raise LaunchError("Herdr server/socket identity changed")
+    if not isinstance(observed.get("epoch"), str) or not observed["epoch"]:
+        raise LaunchError("Worker runtime epoch missing")
     if observed["session"] == expected.get("parent_session"):
         raise LaunchError("Worker reused the parent session")
     session_file = observed.get("session_file")
@@ -144,6 +149,130 @@ def preflight(directory, base="main"):
             "require_sibling": target_root == repo.parent}
 
 
+def state_root():
+    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "feature-workflow"
+
+
+def herdr_instance():
+    socket = os.environ.get("HERDR_SOCKET_PATH")
+    if not socket:
+        raise LaunchError("Herdr socket identity unavailable")
+    path = Path(socket).resolve(strict=True)
+    info = path.stat()
+    if not stat.S_ISSOCK(info.st_mode):
+        raise LaunchError("Herdr endpoint is not a socket")
+    return {"socket": str(path), "device": str(info.st_dev), "inode": str(info.st_ino), "created": str(info.st_ctime_ns)}
+
+
+def actual_session(session_file):
+    try:
+        with Path(session_file).open() as stream:
+            header = json.loads(stream.readline())
+        if header.get("type") != "session" or not header.get("id"):
+            raise ValueError("Missing Pi session header")
+        return header["id"]
+    except (OSError, ValueError, TypeError) as error:
+        raise LaunchError(f"Cannot verify Pi session: {error}") from None
+
+
+def session_identity(epoch, common, role="coordinator"):
+    if not re.fullmatch(r"[a-f0-9-]{36}", epoch):
+        raise LaunchError(f"Select an explicit registered {role} epoch")
+    path = state_root() / "sessions" / (epoch + ".json")
+    try:
+        item = json.loads(path.read_text())
+        if (item.get("instance") != herdr_instance() or item.get("epoch") != epoch or not item.get("live") or item.get("role") != role
+                or time.time() * 1000 - item["updated"] > 10000
+                or Path(item["common"]).resolve() != Path(common).resolve()):
+            raise LaunchError(f"{role.capitalize()} registration is stale or incompatible; explicitly reselect")
+        agent = herdr("agent", "get", item["pane"])["agent"]
+        if (agent.get("agent") != "pi" or agent.get("pane_id") != item["pane"]
+                or agent.get("tab_id") != item["tab"] or agent.get("workspace_id") != item["workspace"]
+                or agent.get("agent_session", {}).get("value") != item["session_file"]
+                or Path(agent.get("foreground_cwd", "")).resolve() != Path(item["cwd"])):
+            raise LaunchError(f"{role.capitalize()} pane/session changed; explicitly reselect")
+        # Pi exposes the actual session ID/file through its context and Herdr integration
+        # before lazily creating the JSONL file on the first message.
+        if not item.get("session") or (Path(item["session_file"]).exists() and actual_session(item["session_file"]) != item["session"]):
+            raise LaunchError(f"{role.capitalize()} session identity changed; explicitly reselect")
+        for other_path in (state_root() / "sessions").glob("*.json"):
+            if other_path == path:
+                continue
+            other = json.loads(other_path.read_text())
+            if (other.get("live") and time.time() * 1000 - other.get("updated", 0) <= 10000
+                    and all(other.get(k) == item.get(k) for k in ("instance", "pane", "session_file"))):
+                raise LaunchError("Ambiguous live session epochs; inspect/reload and explicitly reselect")
+        return item
+    except (OSError, KeyError, ValueError) as error:
+        raise LaunchError(f"{role.capitalize()} unavailable; explicitly reselect: {error}") from None
+
+
+def coordinator_identity(epoch, common):
+    return session_identity(epoch, common, "coordinator")
+
+
+def coordinators(common):
+    items = []
+    for path in (state_root() / "sessions").glob("*.json"):
+        try:
+            items.append(coordinator_identity(path.stem, common))
+        except LaunchError:
+            pass
+    return items
+
+
+def enqueue_assignment(state, receipt, launch_error=None):
+    target = coordinator_identity(state["coordinator"]["epoch"], state["common"])
+    message_id = f"{int(time.time() * 1000):013d}-{uuid.uuid4()}"
+    base = state_root() / "inbox" / target["epoch"] / message_id
+    content = ("You are the explicitly selected feature coordinator, not the implementation worker. "
+               "Do not implement/build in the source checkout or launch a second worker. The launcher owns startup. "
+               "Coordinate the authorized phase and report to Craig. Planning/investigation is not implementation permission. "
+               "No inferred commit, merge, push, cleanup, live app/input or configuration permission. Worker status is not Craig's approval.\n\n"
+               f"Feature: {state['nonce']}\nReceipt: {receipt}\nWorker: {json.dumps(state.get('worker'))}\n\n"
+               f"--- USER BRIEF (verbatim) ---\n\n{state['brief']}\n\n--- END USER BRIEF ---\n\n"
+               f"--- OPTIONAL ORCHESTRATOR CONTEXT (not additional authorization) ---\n\n{state['context']}\n\n--- END CONTEXT ---")
+    if launch_error is not None:
+        content = (f"Launcher blocker for feature {state['nonce']}: {launch_error}\nReceipt: {receipt}\n"
+                   "Delivery may be uncertain. Inspect retained resources; do not replay the assignment, launch another worker, take over implementation or clean up automatically. This is status, not human approval.")
+    write_json(Path(str(base) + ".request.json"), {"id": message_id, "feature": state["nonce"], "target": target,
+               "kind": "launch-status" if launch_error is not None else "assignment", "relationship": str(receipt), "content": content})
+    ack = wait_json(Path(str(base) + ".ack.json"))
+    if ack.get("id") != message_id or ack.get("feature") != state["nonce"] or ack.get("epoch") != target["epoch"] or ack.get("status") not in ("queued", "submitted"):
+        raise LaunchError(f"Coordinator assignment not acknowledged: {ack}")
+    return {"message": str(base) + ".request.json", **ack}
+
+
+def start_coordinator(args, state, receipt, save, worker_extension):
+    directory = receipt.parent / "coordinator"
+    directory.mkdir(mode=0o700)
+    tab = herdr("tab", "create", "--workspace", state["workspace"], "--cwd", state["repo"],
+                "--label", args.name + " coordinator", "--no-focus")
+    request = {**state, "role": "coordinator", "cwd": state["repo"],
+               "branch": run(["git", "-C", state["repo"], "branch", "--show-current"]),
+               "head": run(["git", "-C", state["repo"], "rev-parse", "HEAD"]),
+               "session": str(uuid.uuid4()), "provider": args.coordinator_provider, "model": args.coordinator_model,
+               "pane": tab["root_pane"]["pane_id"], "tab": tab["tab"]["tab_id"],
+               "agent_name": "coord-" + uuid.uuid4().hex[:12]}
+    state["coordinator_startup"] = request
+    save(state)
+    write_json(directory / "request.json", request)
+    herdr("agent", "start", request["agent_name"], "--kind", "pi", "--pane", request["pane"], "--timeout", "60000", "--",
+          "--provider", request["provider"], "--model", request["model"], "--session-id", request["session"],
+          "--name", args.name + " coordinator", "--extension", str(worker_extension.with_name("index.ts")),
+          "--feature-role", "coordinator", "--extension", str(worker_extension), "--feature-request", str(directory / "request.json"),
+          "--append-system-prompt", "You are the feature coordinator, never its implementation worker. Do not implement or build in the source checkout. Do not launch another worker for the assignment delivered by the launcher. Preserve explicit phase and approval limits.", timeout=75)
+    observed = wait_json(directory / "ready.json")
+    validate_identity(request, observed, herdr("agent", "get", request["agent_name"])["agent"])
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        for item in coordinators(state["common"]):
+            if item["session"] == request["session"] and item["pane"] == request["pane"]:
+                return item
+        time.sleep(0.1)
+    raise LaunchError("New coordinator did not register; inspect partial startup")
+
+
 def launch(args, receipt, save):
     if os.environ.get("HERDR_ENV") != "1":
         raise LaunchError("Run inside a Herdr-managed pane (HERDR_ENV=1)")
@@ -152,7 +281,12 @@ def launch(args, receipt, save):
     brief = read_text(args.brief_file)
     context = read_text(args.context_file) if args.context_file else ""
     admitted = preflight(args.repo, args.base)
-    repo, common = Path(admitted["repo"]), Path(admitted["common"])
+    repo, common = Path(admitted["repo"]), Path(admitted["common"]).resolve()
+    choice = args.coordinator
+    # An explicit caller must never accidentally create a second coordinator.
+    if not choice:
+        raise LaunchError("Choose --coordinator new or an explicit registered epoch")
+    coordinator = coordinator_identity(choice, common) if choice != "new" else None
     lock_path = receipt.parent.parent / (hashlib.sha256(str(common).encode()).hexdigest() + ".lock")
     with lock_path.open("a") as lock:
         try:
@@ -174,7 +308,7 @@ def launch(args, receipt, save):
         if not worker_extension.is_file():
             raise LaunchError(f"Missing worker bridge: {worker_extension}; restow pi first")
         state = {"version": 1, "nonce": str(uuid.uuid4()), "name": args.name,
-                 "repo": str(repo), "base": args.base, "head": head, "branch": branch,
+                 "repo": str(repo), "common": str(common), "instance": herdr_instance(), "role": "worker", "base": args.base, "head": head, "branch": branch,
                  "cwd": str(expected_path), "session": str(uuid.uuid4()),
                  "parent_session": os.environ.get("PI_SESSION_ID"),
                  "provider": args.provider, "model": args.model,
@@ -183,6 +317,12 @@ def launch(args, receipt, save):
         # Read-only snapshot: expose dirty scope, never stash/copy/stage it.
         state["source_status"] = run(["git", "-C", str(repo), "status", "--short"])
         save(state)
+        if coordinator is None:
+            state["phase"] = "starting_coordinator"
+            save(state)
+            coordinator = start_coordinator(args, state, receipt, save, worker_extension)
+        state["coordinator"] = coordinator
+        state["relationship"] = str(receipt)
         state["phase"] = "creating_worktree"
         save(state)
         run(["stax", "worktree", "create", branch, "--from", args.base,
@@ -213,13 +353,17 @@ def launch(args, receipt, save):
         herdr("agent", "start", state["agent_name"], "--kind", "pi", "--pane", state["pane"],
               "--timeout", "60000", "--", "--provider", args.provider, "--model", args.model,
               "--session-id", state["session"], "--name", args.name,
-              "--extension", str(worker_extension), "--feature-request", str(request),
+              "--extension", str(worker_extension.with_name("index.ts")),
+              "--feature-role", "worker", "--extension", str(worker_extension), "--feature-request", str(request),
               "--append-system-prompt", guard, timeout=75)
         observed = wait_json(receipt.parent / "ready.json")
         agent = herdr("agent", "get", state["agent_name"])["agent"]
         validate_identity(state, observed, agent)
         state.update(phase="verified", worker=observed)
         save(state)
+        state["coordinator_handoff"] = enqueue_assignment(state, receipt)
+        save(state)
+        coordinator_identity(coordinator["epoch"], common)  # Revalidate before releasing independent work.
         write_json(receipt.parent / "release.json", {"nonce": state["nonce"]})
         delivered = wait_json(receipt.parent / "delivery.json", timeout=20)
         if delivered.get("nonce") != state["nonce"] or delivered.get("status") != "submitted":
@@ -227,21 +371,39 @@ def launch(args, receipt, save):
         # Submitted is not task completion: the worker continues independently.
         state["phase"] = "submitted"
         save(state)
+        destination = coordinator_identity(coordinator["epoch"], common)
+        herdr("tab", "focus", destination["tab"])
         return state
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("name")
-    parser.add_argument("--brief-file", required=True, help="UTF-8 brief file, or - for stdin; preserved verbatim")
+    parser.add_argument("name", nargs="?")
+    parser.add_argument("--list-coordinators", action="store_true", help="Read-only compatible live registrations")
+    parser.add_argument("--brief-file", help="UTF-8 brief file, or - for stdin; preserved verbatim")
     parser.add_argument("--context-file", help="Separate optional context, never a replacement for the brief")
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--origin-pane", help="Frozen originating pane ID (required by Herdr popup callers)")
     parser.add_argument("--base", default="main", help="Existing local integration branch; no implicit fetch")
     parser.add_argument("--require-sibling", action="store_true", help="Require Stax to use ../<repo>-<name>, for relative dependencies")
+    parser.add_argument("--coordinator", help="new or explicit live registration epoch; never inferred from focus")
+    parser.add_argument("--coordinator-provider", default="openai-codex")
+    parser.add_argument("--coordinator-model", default="gpt-6-astra")
     parser.add_argument("--provider", default="openai-codex")
     parser.add_argument("--model", default="gpt-6-astra")
     args = parser.parse_args()
+    if args.list_coordinators:
+        try:
+            if os.environ.get("HERDR_ENV") != "1":
+                raise LaunchError("Run inside Herdr")
+            common = run(["git", "-C", args.repo, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+            print(json.dumps(coordinators(common), indent=2))
+            return 0
+        except (LaunchError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+    if not args.name or not args.brief_file or not args.coordinator:
+        parser.error("name, --brief-file and explicit --coordinator are required")
     os.umask(0o077)
     root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "feature-workflow"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -257,9 +419,14 @@ def main():
     try:
         state = launch(args, receipt, save)
         print(json.dumps({"ok": True, "receipt": str(receipt), **{key: state[key] for key in
-              ("phase", "cwd", "branch", "session", "provider", "model", "agent_name", "pane", "tab")}}, indent=2))
+              ("phase", "cwd", "branch", "session", "provider", "model", "agent_name", "pane", "tab", "coordinator", "coordinator_handoff")}}, indent=2))
     except (LaunchError, OSError, ValueError, KeyError, subprocess.SubprocessError, KeyboardInterrupt) as error:
         save({"failed_at": latest["phase"], "phase": "failed", "error": str(error) or "Interrupted"})
+        if latest.get("coordinator"):
+            try:
+                save({"blocker_handoff": enqueue_assignment(latest, receipt, launch_error=latest["error"])})
+            except (LaunchError, OSError, ValueError, KeyError, subprocess.SubprocessError) as routing_error:
+                save({"blocker_handoff_error": str(routing_error)})
         print(json.dumps({"ok": False, "error": latest["error"], "receipt": str(receipt),
               "note": "No automatic retry/cleanup. Inspect receipt and created resources; task delivery may be uncertain."}, indent=2), file=sys.stderr)
         return 1

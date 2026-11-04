@@ -17,9 +17,13 @@ loader.exec_module(m)
 
 class LauncherTests(unittest.TestCase):
     def setUp(self):
-        self.expected = dict(nonce="n", cwd="/tmp/worker", branch="feature/foo", head="abc", session="new",
+        self.instance = dict(socket='/test/socket', device='1', inode='2', created='3')
+        instance_patch = patch.object(m, 'herdr_instance', return_value=self.instance)
+        instance_patch.start()
+        self.addCleanup(instance_patch.stop)
+        self.expected = dict(instance=self.instance, nonce="n", cwd="/tmp/worker", branch="feature/foo", head="abc", session="new",
                              parent_session="old", provider="openai-codex", model="gpt-6-astra", pane="w1:p2", tab="w1:t2", workspace="w1")
-        self.observed = {**self.expected, "session_file": "/tmp/new.jsonl"}
+        self.observed = {**self.expected, "epoch": "runtime-epoch", "session_file": "/tmp/new.jsonl"}
         self.agent = dict(agent="pi", pane_id="w1:p2", foreground_cwd="/tmp/worker", agent_status="idle",
                           agent_session={"value": "/tmp/new.jsonl"})
 

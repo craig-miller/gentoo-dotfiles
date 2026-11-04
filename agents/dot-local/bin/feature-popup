@@ -32,6 +32,37 @@ def origin_context(env=None):
     return pane, str(Path(cwd).resolve())
 
 
+def origin_coordinator(pane, instance, common):
+    """Use the invocation snapshot only; never choose another same-repo conversation."""
+    if pane.get('agent') != 'pi':
+        return None
+    unregistered = {'unregistered': True, 'pane': pane['pane_id']}
+    session_file = pane.get('agent_session', {}).get('value')
+    if not session_file:
+        return unregistered
+    matches = []
+    for path in (core.state_root() / 'sessions').glob('*.json'):
+        try:
+            item = json.loads(path.read_text())
+            if (item.get('instance') == instance and item.get('pane') == pane['pane_id']
+                    and item.get('session_file') == session_file and item.get('live')
+                    and core.time.time() * 1000 - item['updated'] <= 10000
+                    and Path(item['common']).resolve() == Path(common).resolve()
+                    and item.get('session')
+                    and (not Path(session_file).exists() or item['session'] == core.actual_session(session_file))):
+                matches.append(item)
+        except (OSError, ValueError, KeyError, core.LaunchError):
+            continue
+    if len(matches) != 1:
+        return unregistered
+    if matches[0].get('role') == 'worker':
+        return None
+    try:
+        return core.coordinator_identity(matches[0]['epoch'], common)
+    except core.LaunchError:
+        return unregistered
+
+
 def cell_width(char):
     if unicodedata.combining(char):
         return 0
@@ -321,7 +352,42 @@ def model_picker(window, repo, current, style):
         window.timeout(-1)
 
 
-def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL):
+def coordinator_picker(window, admitted, current, style):
+    choices = [None] + core.coordinators(admitted['common'])
+    selected = next((i for i, item in enumerate(choices) if item and current and item['epoch'] == current.get('epoch')), 0)
+    while True:
+        window.erase()
+        height, width = window.getmaxyx()
+        put(window, 1, 2, 'Coordinator', style.accent | curses.A_BOLD)
+        count = max(1, height - 6)
+        offset = max(0, selected - count + 1)
+        if len(choices) == 1:
+            put(window, 5, 2, 'No compatible live existing coordinators registered', style.muted)
+        for i, item in enumerate(choices[offset:offset + count], offset):
+            label = ('New session — openai-codex/gpt-6-astra' if item is None else
+                     f"Existing: {item.get('name') or item['session']}  {item['tab']}  {item['epoch'][:8]}" + (' (busy: updates queue)' if item.get('busy') else ''))
+            put(window, 3 + i - offset, 2, ('› ' if i == selected else '  ') + label,
+                style.accent if i == selected else 0)
+        put(window, height - 2, 2, '↑↓: select  Enter: accept  Esc: cancel', style.muted)
+        curses.curs_set(0)
+        window.refresh()
+        key = read_key(window)
+        if key in ('\x1b', '\x03'): return current
+        if key in ('\n', '\r', curses.KEY_ENTER): return choices[selected]
+        if key == curses.KEY_UP: selected = max(0, selected - 1)
+        if key == curses.KEY_DOWN: selected = min(len(choices) - 1, selected + 1)
+
+
+def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL, coordinator=None):
+    # Frozen socket/server and full chosen identity, not later focus.
+    if admitted.get('origin_instance') and core.herdr_instance() != admitted['origin_instance']:
+        raise core.LaunchError('Invoking Herdr instance changed; reopen the form')
+    if coordinator:
+        if coordinator.get('unregistered'):
+            raise core.LaunchError('Invoking Pi is unregistered. Use /reload in that session and reopen, or explicitly choose New session with Ctrl-O.')
+        current = core.coordinator_identity(coordinator['epoch'], admitted['common'])
+        if any(current.get(key) != coordinator.get(key) for key in ('instance', 'session', 'session_file', 'epoch', 'common', 'pane', 'tab', 'workspace')):
+            raise core.LaunchError('Selected coordinator changed; explicitly reselect')
     # A fresh read-only check on Ctrl-S and again inside feature-start.
     fresh = core.preflight(admitted["repo"], admitted["base"])
     if fresh["repo"] != admitted["repo"] or fresh["common"] != admitted["common"]:
@@ -339,6 +405,7 @@ def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL):
             "not yet in the new branch; honor current workflow/approval rules without copying or changing those files.\n")
         command = [str(LAUNCHER), name, "--repo", fresh["repo"], "--base", fresh["base"],
                    "--origin-pane", pane, "--brief-file", str(path), "--context-file", str(context),
+                   "--coordinator", coordinator['epoch'] if coordinator else 'new',
                    "--provider", model[0], "--model", model[1]]
         if fresh["require_sibling"]:
             command.append("--require-sibling")
@@ -356,12 +423,14 @@ def form(window, pane, admitted, style=None):
     style = style or PopupStyle()
     name, brief = Editor(), Editor(multiline=True)
     model = DEFAULT_MODEL
-    field, error, blocked, running = 0, "", False, False
+    coordinator = admitted.get('default_coordinator')  # Captured once before the form, never recomputed from focus.
+    notice = 'Invoking Pi is unregistered. Use /reload there and reopen, or Ctrl-O to explicitly choose New session/another coordinator.'
+    field, error, blocked, running = 0, notice if coordinator and coordinator.get('unregistered') else "", False, False
     results = queue.Queue()
 
     def start():
         try:
-            results.put((execute_launch(pane, admitted, name.text, brief.text, model), None))
+            results.put((execute_launch(pane, admitted, name.text, brief.text, model, coordinator), None))
         except Exception as exc:
             results.put((None, str(exc)))
 
@@ -372,6 +441,11 @@ def form(window, pane, admitted, style=None):
             put(window, 0, 0, "Window too small for feature form", style.error)
         else:
             put(window, 1, 2, "New feature", style.accent | curses.A_BOLD)
+            put(window, 2, 2, 'Coord ^O', style.muted)
+            label = ('Unregistered invoking Pi · /reload required' if coordinator and coordinator.get('unregistered') else
+                     f"Existing: {clip(coordinator.get('name') or coordinator['session'][:8], 24)} ({coordinator['tab']}, {coordinator['session'][:8]})" if coordinator else
+                     'New session · openai-codex/gpt-6-astra')
+            put(window, 2, 14, label)
             put(window, 3, 2, "Repository", style.muted)
             put(window, 3, 14, admitted["repo"])
             put(window, 4, 2, "Base", style.muted)
@@ -394,7 +468,7 @@ def form(window, pane, admitted, style=None):
             for index, line in enumerate(error_lines):
                 put(window, height - 3 - len(error_lines) + index, 2, line, style.error)
             footer = "Launching and verifying worker…" if running else (
-                "Launch stopped; inspect receipt before retrying. Esc: close" if blocked else "Tab: field  ^P: model  ^S: launch  Esc: cancel")
+                "Launch stopped; inspect receipt before retrying. Esc: close" if blocked else "Tab: field  ^P: model  ^O: coordinator  ^S: launch  Esc: cancel")
             put(window, height - 2, 2, footer, style.muted)
             if not running:
                 curses.curs_set(1)
@@ -416,11 +490,7 @@ def form(window, pane, admitted, style=None):
             if failure:
                 error, blocked = failure, True
                 continue
-            try:
-                core.herdr("tab", "focus", receipt["tab"])
-            except Exception as exc:
-                error, blocked = f"Worker started in {receipt['tab']}, but focus failed: {exc}", True
-                continue
+            # Launcher focuses the reverified coordinator, never the worker.
             return
         key = read_key(window)
         if key in ("\x1b", "\x03"):
@@ -431,6 +501,12 @@ def form(window, pane, admitted, style=None):
             (name if field == 0 else brief).insert(key[1])
         elif key in ("\t", curses.KEY_BTAB):
             field = 1 - field
+        elif key == "\x0f" and not blocked:
+            try:
+                coordinator = coordinator_picker(window, admitted, coordinator, style)
+                error = notice if coordinator and coordinator.get('unregistered') else ''
+            except Exception as exc:
+                error = str(exc)
         elif key == "\x10" and not blocked:
             model = model_picker(window, admitted['repo'], model, style)
         elif key == "\x13" and not blocked:
@@ -438,6 +514,8 @@ def form(window, pane, admitted, style=None):
                 error, field = "Use a lowercase name such as email-table (maximum 48 characters)", 0
             elif not brief.text.strip():
                 error, field = "A brief is required", 1
+            elif coordinator and coordinator.get('unregistered'):
+                error = notice
             else:
                 error, running = "", True
                 threading.Thread(target=start, daemon=True).start()
@@ -466,8 +544,13 @@ def main():
     pane, admitted, error = None, None, None
     try:
         pane, cwd = origin_context()
+        instance = core.herdr_instance()
+        origin = core.herdr("pane", "get", pane)['pane']  # Snapshot exact invocation before potentially slow preflight.
         admitted = core.preflight(cwd)
-        core.herdr("pane", "get", pane)  # Validate explicit origin exists; never use global focus.
+        if core.herdr_instance() != instance:
+            raise core.LaunchError('Invoking Herdr instance changed; reopen the form')
+        admitted['origin_instance'] = instance
+        admitted['default_coordinator'] = origin_coordinator(origin, instance, admitted['common'])
     except Exception as exc:
         error = str(exc)
     if not sys.stdin.isatty() or not sys.stdout.isatty():

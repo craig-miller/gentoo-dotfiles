@@ -1,69 +1,48 @@
 ---
 name: feature-workflow
-description: "Launch a new feature in a separate Stax worktree/branch and Herdr tab with a fresh Pi worker. Use for /feature, requests to start isolated feature work, or hand off a brief without implementing in the orchestrator. Supports planning/reuse investigation as an authorized phase, not implicit implementation."
+description: "Launch isolated Stax/Herdr/Pi feature work with an explicit coordinator. Use for /feature, natural-language delegation, and planning/reuse investigation without implementing in the orchestrator."
 ---
 
 # Isolated feature workflow
 
-## Ownership
+## Ownership and scope
 
-You are the orchestrator when launching a feature. Prepare context, launch, verify and report; **do not implement/test/build the feature in this session**, even by changing directory to its worktree. If launch fails, inspect and report; never silently take the worker's job. A separate worktree is not proof of a separate executing agent.
+The coordinator prepares context, launches, verifies and reports; **never implement/test/build the delegated feature in the coordinator session**, even by changing directory. A separate worktree is not proof of an independent agent. Startup failure does not authorize taking over.
 
-Use this only when Craig requests feature delegation. Require `HERDR_ENV=1`; outside Herdr stop. Read the Herdr and Stax skills before controlling them, and repository instructions before choosing the base/scope. Defaults are local `main` and `openai-codex/gpt-6-astra`; honor an explicitly requested alternative. No implicit fetch, push, commit, integration, cleanup or live app/provider/configuration changes.
+Use only when Craig requests delegation. Require `HERDR_ENV=1`; read the Herdr/Stax skills and repository instructions. Local `main` and `openai-codex/gpt-6-astra` are defaults, not overrides of explicit choices. No inferred commit, merge, push, fetch, cleanup, live app/provider input or configuration permission.
 
-## Inputs
+Preserve the **verbatim brief** in a private UTF-8 file. Put agreed decisions, constraints, tests and current workflow overrides in a separate context file. Planning/investigation authorizes that work now, not implementation or acknowledgement-only waiting.
 
-- A lowercase slug such as `email-table` (maximum 48 characters).
-- A nonempty **verbatim user brief**, including newlines, punctuation and requested phase.
-- Optional separately labelled context: agreed decisions, constraints, architecture pointers, tests, unresolved questions and current workflow overrides. Do not dump the whole conversation or private credentials/data.
+## Coordinator selection
 
-`/feature foo <brief>` preserves the raw brief received by the command in a private file. `/feature` asks for the name and opens a multiline editor; `/feature foo` opens the brief editor. The command asks the current agent to load this skill and perform orchestration, so it can add relevant conversation context. It does not resume/fork that conversation into the worker.
-
-If a name/brief is already sufficient, do not ask redundant approval. If a brief says plan/investigate first, that work is authorized now; do not reduce it to acknowledgement-only, and do not broaden it to implementation. Without explicit implementation authorization, planning/reuse investigation/design is the ceiling. Phase limits are instructions, not an OS sandbox.
-
-## Preflight
-
-1. Inspect cwd, repository instructions, branch, dirty files and existing worktrees. Choose an existing **local integration branch**, not HEAD merely because it is current. Never stage/stash/copy uncommitted source changes to make launching easier.
-2. Note any important workflow instructions present only as uncommitted edits. Put their current rules and read-only source paths in the separate context. For Zentoo specifically, main is integration; the committed develop-era workflow is obsolete, and `/home/craig/src/zentoo/docs/development-workflow.md` is currently authoritative. Preserve its and AGENTS.md's uncommitted edits.
-3. By default respect Stax's configured worktree root. For repositories with relative sibling dependencies, pass `--require-sibling`. Zentoo requires this for ../icalendar-kit and already has `root_dir = ".."` in stax.toml. If that option is given and Stax produces another root, the launcher stops and reports the actual location; do not silently move it.
-4. A duplicate branch/path is a blocker, not permission to attach an existing worker. Ask whether to inspect/reuse it through a separately verified manual handoff.
+- `/feature NAME BRIEF` saves the multiline brief and supplies this session's explicit registration epoch. Use that epoch; never create a second coordinator.
+- For natural-language delegation from this session, run `feature-start --list-coordinators --repo /absolute/repo`. Select the registration matching your **own `PI_SESSION_ID` and session file**, not the focused tab. If missing, report the blocker; an existing session may need a user-authorized `/reload` after integration.
+- Use `--coordinator new` only when a new control conversation is intended. It creates a coordinator in the source checkout and one independent worker. Coordinator model defaults independently to `openai-codex/gpt-6-astra`; override with `--coordinator-provider`/`--coordinator-model`.
+- Ctrl-B then f preselects the compatible registered coordinator in the exact invoking pane/Herdr instance, captured before the form. Shell/worker origins default to New; unregistered Pi origins show `/reload` guidance and require explicit selection instead of guessing another conversation.
+- Existing coordinators must share the canonical Git common directory and verified socket/server lifetime. A stale/closed/reloaded/replaced session requires explicit reselection. No repository-wide permanent owner or silent fallback.
 
 ## Launch
 
-For natural-language requests, use write to create the original brief in a temporary/private file without paraphrasing. Keep your synthesized context in a separate file. For `/feature`, use its supplied brief path unchanged.
+Inspect the source branch, dirty files, instructions and existing worktrees read-only. Choose an existing local integration branch. Never copy/stash/stage dirty source files. Carry important uncommitted workflow rules as separate context and read-only source paths.
 
 ```sh
-feature-start foo --repo /absolute/repo --base main \
-  --brief-file /absolute/brief.md --context-file /absolute/context.md
+feature-start NAME --repo /absolute/repo --base main \
+  --coordinator EPOCH --brief-file /absolute/brief.md \
+  --context-file /absolute/context.md
 ```
 
-Omit `--context-file` if there is no extra context. The launcher also accepts `--brief-file -` (stdin). A `--provider`/`--model` pair overrides the default. Keep paths/arguments quoted; never interpolate a brief into shell commands. Allow approximately 180 seconds for startup or run the launcher as a monitored background command rather than killing it and blindly repeating it.
+Omit context if unnecessary; `--brief-file -` accepts stdin. `--provider`/`--model` select the worker. Require lowercase hyphenated names (maximum 48 characters). Use `--require-sibling` for relative sibling dependencies; Stax must then create `../<repo>-<name>`. Duplicate branches/paths are blockers, never implicit reuse. Allow several minutes for two-session startup rather than killing and repeating it.
 
-The launcher:
-- Rechecks shared read-only repository admission (non-bare working tree, local base, no conflicts/in-progress operation, writable Git/destination, valid initialized Stax state). Dirty unrelated files are allowed. Fresh Stax repositories are not initialized during preflight.
-- Serializes its own launches per Git repository.
-- Creates only a new Stax branch/worktree from captured local base HEAD.
-- Verifies actual branch HEAD and cleanliness (Stax's prose can mislabel origin/main).
-- Creates a background Herdr tab using returned opaque IDs.
-- Starts a fresh named Pi with an explicit unique session ID/model and assignment guard.
-- Loads a worker bridge that reports actual Pi context/session/model and native pane/cwd/branch/HEAD, then waits for a nonce-correlated release.
-- Cross-checks the worker against Herdr's detected session and foreground directory before releasing the brief.
-- Delivers via `pi.sendUserMessage()`, **not terminal paste**. This bypasses the installed Vim editor's NORMAL mode; no blind `i`, Escape or Enter injection is required.
-- Claims delivery once before submission. A crash/timeout has uncertain delivery, not automatic replay.
-- Returns JSON with receipt, branch/worktree, agent/tab/pane/session/model and `phase: submitted`.
+The launcher verifies Git, fresh worker/session/model and Herdr identities, records ownership, obtains the coordinator inbox acknowledgement, then releases the worker brief through Pi's API. No terminal prompt pasting or Vim mode manipulation. It focuses the coordinator only after verified submission. Subsequent worker reports never change focus.
 
-`submitted` means accepted by the Pi API, **not completed work or successful model response**. Inspect `herdr agent get <returned-name>` and `herdr agent read <returned-name> --source recent-unwrapped --lines 100` to confirm the worker begins the intended phase. Use bounded `agent wait` if needed. Blocked UI requires Craig's decision; never automatically answer approvals. Do not interrupt an already-working agent with a duplicate brief.
+## Existing worker reporting
 
-## Failure/recovery
+Use `feature-attach RECEIPT --worker EPOCH --coordinator EPOCH` to attach reporting without recreating sessions/worktrees or replaying work. Both endpoints need the current extension and user-controlled `/reload` when safe; never interrupt an implementing worker. Rebind/renewal requires `--replace PREVIOUS_REVISION`. See the short [attach procedure and recovery](references/attach.md).
 
-Private run records live under `$XDG_STATE_HOME/feature-workflow` (default `~/.local/state/feature-workflow`). Each receipt identifies the last phase and known resources, including partial launches. Briefs/context are local private state, not dotfiles or tracked worktree files.
+## Results and recovery
 
-A failed command preserves created branch/worktree/tab; it never deletes, resets, stashes or retries automatically. Inspect its receipt and actual Git/Herdr state before deciding the next step. A claim without confirmed delivery is uncertain; inspect the worker's session before any manual resend. Do not restart a failed launch under a new name just to hide leftover resources. Cleanup needs user authorization except disposable resources explicitly created for tests.
+`submitted` is API acceptance, not model completion. `queued` is receiver acknowledgement while busy, not delivered conversation content. Worker settled responses are forwarded as **agent status, never Craig's approval**. Inspect the receipt and correlated acknowledgement files for readiness/blockers/requests.
 
-Report the worker's name/tab, exact worktree/branch/model, current phase and any blocker. Keep the orchestrator free for coordination. Worker owns its subsequent authorized edits/tests/builds, with independent writable build caches. Worktrees do not isolate live config/data or sibling dependencies.
+Claims precede delivery. A crash, missing acknowledgement or uncertain result must not be replayed automatically. Partial branches/worktrees/tabs remain inspectable. Do not rename/retry to hide failures; do not remove resources without authorization. Worktrees are not a sandbox: live configuration, data and sibling dependencies remain shared.
 
-## Installation and tests
-
-Durable code is in ~/dotfiles: skill/launcher in `agents`, Pi command/worker bridge in `pi`. Restow with `stow --dotfiles --no-folding -R agents pi`. Run `/reload` in existing Pi sessions to discover `/feature` and the skill. The bridge is explicitly loaded only into launched workers.
-
-Read `references/design.md` for CLI options, receipt meanings and failure recovery. Read `references/popup.md` for the Herdr **Ctrl-B then f** form, model picker, installation and test commands.
+See [launcher interface/recovery](references/design.md) and [Ctrl-B then f popup](references/popup.md). Installation requires separately authorized restowing of `agents pi` (and `herdr` if changed), then user-controlled `/reload` in existing Pi sessions. Never restow a feature worktree over the live checkout.

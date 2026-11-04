@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { installCoordination } from "./coordination.ts";
 
 export function splitFeatureArgs(args: string): { name: string; brief: string } {
   const match = /^\s*(\S+)(?:[ \t]|\r?\n)?([\s\S]*)$/.exec(args);
@@ -10,6 +11,7 @@ export function splitFeatureArgs(args: string): { name: string; brief: string } 
 }
 
 export default function (pi: ExtensionAPI) {
+  const registration = installCoordination(pi);
   pi.registerCommand("feature", {
     description: "Start an isolated Pi feature worker: /feature <name> <brief> (multiline supported)",
     handler: async (args, ctx) => {
@@ -26,6 +28,8 @@ export default function (pi: ExtensionAPI) {
       }
       if (!brief.trim()) { ctx.ui.notify("A nonempty brief is required", "warning"); return; }
       if (Buffer.byteLength(brief) > 128 * 1024) { ctx.ui.notify("Brief exceeds 128 KiB", "error"); return; }
+      const destination = registration();
+      if (!destination || destination.role !== "coordinator") { ctx.ui.notify("No compatible live coordinator registration; reload this session before launching", "error"); return; }
       const directory = join(process.env.XDG_STATE_HOME || join(homedir(), ".local/state"), "feature-workflow", "requests", randomUUID());
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, "brief.md");
@@ -35,6 +39,7 @@ export default function (pi: ExtensionAPI) {
         `Feature name: ${name}`,
         `Original brief file (preserve verbatim): ${JSON.stringify(path)}`,
         `Source cwd: ${JSON.stringify(ctx.cwd)}`,
+        `Explicit existing coordinator: pass --coordinator ${destination.epoch}. Do not create a second coordinator or infer ownership from focus.`,
         "Read the skill in ~/.config/agents/skills/feature-workflow/SKILL.md. Inspect repository instructions and base. Supply relevant agreed conversation decisions in a separate context file, not by rewriting the brief. If scope is sufficient, launch through feature-start; otherwise ask only the missing question. Report the launcher receipt and stop; a startup failure is not permission to take over the feature.",
       ].join("\n\n"));
     },

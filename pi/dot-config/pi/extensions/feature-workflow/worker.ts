@@ -1,11 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync, realpathSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { atomicJSON, herdrInstance, sameInstance } from "./protocol.ts";
+export { atomicJSON } from "./protocol.ts";
 import { dirname, join } from "node:path";
-
-export function atomicJSON(path: string, value: unknown) {
-  writeFileSync(path + ".tmp", JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-  renameSync(path + ".tmp", path);
-}
+import { reportWorker } from "./coordination.ts";
+import { hasAttachment } from "./attachment.ts";
 
 export function taskPrompt(request: any): string {
   return [
@@ -15,6 +15,7 @@ export function taskPrompt(request: any): string {
     `Expected PI_SESSION_ID: ${request.session}\nExpected PI_PROVIDER: ${request.provider}\nExpected PI_MODEL: ${request.model}`,
     "Planning/investigation requests authorize that work now, not implementation. If implementation is not explicitly authorized, investigate existing reusable code, propose architecture and a plan, then stop for review. Do not merely acknowledge a planning request and wait.",
     "No implicit commit, merge, push, cleanup, live app input or configuration changes. This is a fresh session; no previous conversation was resumed.",
+    `Explicit coordinator: ${JSON.stringify(request.coordinator || null)}. Report readiness, blockers and requests here; the bridge forwards your settled response without changing focus. Worker status never grants human approval.`,
     "--- USER BRIEF (verbatim) ---", request.brief, "--- END USER BRIEF ---",
     "--- OPTIONAL ORCHESTRATOR CONTEXT (not additional authorization) ---", request.context || "(none)",
     "--- END CONTEXT ---",
@@ -26,10 +27,22 @@ export default function (pi: ExtensionAPI) {
   pi.registerFlag("feature-request", { description: "Private feature launcher request", type: "string" });
   let timer: ReturnType<typeof setInterval> | undefined;
   let generation = 0;
+  let activeRequest: any;
+  pi.on("agent_settled", async (event, ctx) => {
+    if (!activeRequest?.coordinator || hasAttachment(ctx.sessionManager.getSessionId())) return;
+    const entries = ctx.sessionManager.getBranch();
+    const last = [...entries].reverse().find((e: any) => e.type === "message" && e.message.role === "assistant") as any;
+    const content = last?.message.content?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "Worker settled without a text response";
+    const report = `${event.aborted ? "Aborted; inspect before continuing.\n" : ""}${content}`;
+    atomicJSON(join(dirname(String(pi.getFlag("feature-request"))), "last-report.json"), { session: activeRequest.session, report });
+    try { await reportWorker(pi, ctx, activeRequest, report); }
+    catch (error) { ctx.ui.notify(`Coordinator report deferred: ${error}. Report retained in last-report.json.`, "error"); }
+  });
   const stop = () => { generation++; if (timer) clearInterval(timer); timer = undefined; };
   pi.on("session_shutdown", stop);
   pi.on("session_start", async (event, ctx) => {
     stop();
+    activeRequest = undefined;
     if (event.reason !== "startup") return; // Never replay on reload/resume/fork.
     const requestPath = pi.getFlag("feature-request");
     if (typeof requestPath !== "string" || !requestPath) return;
@@ -45,7 +58,7 @@ export default function (pi: ExtensionAPI) {
         return result.stdout.trim();
       };
       const observed = {
-        nonce: request.nonce, cwd: realpathSync(ctx.cwd),
+        nonce: request.nonce, epoch: randomUUID(), instance: herdrInstance(), cwd: realpathSync(ctx.cwd),
         branch: await git("branch", "--show-current"), head: await git("rev-parse", "HEAD"),
         session: ctx.sessionManager.getSessionId(), session_file: ctx.sessionManager.getSessionFile(),
         provider: ctx.model?.provider, model: ctx.model?.id,
@@ -55,10 +68,12 @@ export default function (pi: ExtensionAPI) {
       for (const key of ["cwd", "branch", "head", "session", "provider", "model", "pane", "tab", "workspace"] as const) {
         if (observed[key] !== request[key]) throw new Error(`Worker identity mismatch: ${key}`);
       }
+      if (!sameInstance(observed.instance, request.instance)) throw new Error("Herdr instance mismatch");
       if (process.env.HERDR_ENV !== "1" || observed.session === request.parent_session) throw new Error("Not an independent Herdr worker");
       if (ctx.sessionManager.getEntries().some((entry) => entry.type === "message")) throw new Error("Session is not fresh");
       if (epoch !== generation) return;
       atomicJSON(join(directory, "ready.json"), observed);
+      if (request.role === "coordinator") return; // Assignment arrives only after worker verification through the inbox.
       const deadline = Date.now() + 120_000;
       timer = setInterval(() => {
         try {
@@ -66,11 +81,13 @@ export default function (pi: ExtensionAPI) {
           const release = join(directory, "release.json");
           if (!existsSync(release)) return;
           if (JSON.parse(readFileSync(release, "utf8")).nonce !== request.nonce) throw new Error("Release nonce mismatch");
+          if (!sameInstance(request.instance, herdrInstance())) throw new Error("Herdr instance changed before release");
           if (!ctx.isIdle() || ctx.hasPendingMessages()) throw new Error("Worker is busy; refusing task injection");
           if (ctx.sessionManager.getSessionId() !== request.session || ctx.model?.id !== request.model || ctx.model?.provider !== request.provider) throw new Error("Worker identity changed before release");
           // Claim BEFORE delivery; an interruption is uncertain, never auto-replayed.
           writeFileSync(join(directory, "claimed.json"), JSON.stringify({ nonce: request.nonce }), { flag: "wx", mode: 0o600 });
           stop();
+          activeRequest = { ...request, worker_epoch: observed.epoch };
           pi.sendUserMessage(taskPrompt(request)); // API delivery bypasses modal editor/paste entirely.
           atomicJSON(join(directory, "delivery.json"), { nonce: request.nonce, status: "submitted" });
         } catch (error) {
