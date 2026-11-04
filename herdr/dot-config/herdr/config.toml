@@ -27,6 +27,15 @@ type = "plugin_action"
 command = "herdr-nvim-nav.right"
 description = "navigate right (nvim/herdr)"
 
+# Start an isolated feature from the originating pane's repository.
+[[keys.command]]
+key = "prefix+f"
+type = "popup"
+command = "exec \"$HOME/.local/bin/feature-popup\""
+description = "new feature"
+width = "70%"
+height = "60%"
+
 [ui.toast]
 delivery = "off"
 

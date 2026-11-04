@@ -1,0 +1,481 @@
+#!/usr/bin/env python3
+"""Herdr floating feature form. Uses only Python's standard library."""
+import curses
+import json
+import locale
+import os
+from pathlib import Path
+import queue
+import runpy
+import subprocess
+import sys
+import tempfile
+import textwrap
+import threading
+import unicodedata
+from types import SimpleNamespace
+
+sys.dont_write_bytecode = True
+LAUNCHER = Path(__file__).resolve().with_name("feature-start")
+core = SimpleNamespace(**runpy.run_path(str(LAUNCHER)))
+
+
+def origin_context(env=None):
+    env = os.environ if env is None else env
+    if env.get("HERDR_ENV") != "1":
+        raise core.LaunchError("This command requires a Herdr popup")
+    # Popup commands have ACTIVE context, not a tiled HERDR_PANE_ID. Never use focus.
+    pane = env.get("HERDR_ACTIVE_PANE_ID")
+    cwd = env.get("HERDR_ACTIVE_PANE_CWD")
+    if not pane or not cwd:
+        raise core.LaunchError("Herdr did not supply the originating pane and directory")
+    return pane, str(Path(cwd).resolve())
+
+
+def cell_width(char):
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def clean(text):
+    return "".join(c if c.isprintable() else " " for c in str(text))
+
+
+def clip(text, width):
+    result, used = "", 0
+    for char in clean(text):
+        if used + cell_width(char) > width:
+            break
+        result += char
+        used += cell_width(char)
+    return result
+
+
+class Editor:
+    def __init__(self, text="", multiline=False):
+        self.text, self.pos, self.multiline = text, len(text), multiline
+
+    def insert(self, text):
+        if not self.multiline:
+            text = text.replace("\n", " ").replace("\r", " ")
+        if len((self.text + text).encode()) > 128 * 1024:
+            return
+        self.text = self.text[:self.pos] + text + self.text[self.pos:]
+        self.pos += len(text)
+
+    def key(self, key):
+        start = self.text.rfind("\n", 0, self.pos) + 1
+        end = self.text.find("\n", self.pos)
+        if end < 0:
+            end = len(self.text)
+        if key in (curses.KEY_LEFT,):
+            self.pos = max(0, self.pos - 1)
+        elif key == curses.KEY_RIGHT:
+            self.pos = min(len(self.text), self.pos + 1)
+        elif key in (curses.KEY_HOME, "\x01"):
+            self.pos = start
+        elif key in (curses.KEY_END, "\x05"):
+            self.pos = end
+        elif key == curses.KEY_UP and start:
+            previous = self.text.rfind("\n", 0, start - 1) + 1
+            self.pos = min(start - 1, previous + self.pos - start)
+        elif key == curses.KEY_DOWN and end < len(self.text):
+            following = self.text.find("\n", end + 1)
+            self.pos = min(len(self.text) if following < 0 else following, end + 1 + self.pos - start)
+        elif key in (curses.KEY_BACKSPACE, "\x7f", "\b") and self.pos:
+            self.text = self.text[:self.pos - 1] + self.text[self.pos:]
+            self.pos -= 1
+        elif key == curses.KEY_DC:
+            self.text = self.text[:self.pos] + self.text[self.pos + 1:]
+        elif key == "\x15":
+            self.text = self.text[:start] + self.text[self.pos:]
+            self.pos = start
+        elif key in ("\n", "\r", curses.KEY_ENTER):
+            if self.multiline:
+                self.insert("\n")
+        elif isinstance(key, str) and key.isprintable():
+            self.insert(key)
+
+    def layout(self, width):
+        rows, row, column, cursor = [""], 0, 0, (0, 0)
+        for index, char in enumerate(self.text):
+            if char != "\n" and column + cell_width(char) > width:
+                rows.append(""); row += 1; column = 0
+            if index == self.pos:
+                cursor = row, column
+            if char == "\n":
+                rows.append(""); row += 1; column = 0
+            else:
+                rows[row] += clean(char)
+                column += cell_width(char)
+        if self.pos == len(self.text):
+            if column >= width:
+                rows.append(""); row += 1; column = 0
+            cursor = row, column
+        return rows, cursor
+
+
+def read_key(window):
+    key = window.get_wch()
+    if key != "\x1b":
+        return key
+    # Bracketed paste must not turn embedded Ctrl-S/newlines into commands.
+    window.timeout(30)
+    sequence = ""
+    try:
+        for _ in range(5):
+            part = window.get_wch()
+            if not isinstance(part, str):
+                break
+            sequence += part
+    except curses.error:
+        pass
+    finally:
+        window.timeout(-1)
+    if sequence != "[200~":
+        return "\x1b"
+    pasted = ""
+    while not pasted.endswith("\x1b[201~"):
+        part = window.get_wch()
+        if isinstance(part, str):
+            pasted += part
+        if len(pasted) > 256 * 1024:
+            raise core.LaunchError("Paste exceeds the brief limit")
+    return ("paste", pasted[:-6])
+
+
+def put(window, y, x, text, attribute=0):
+    height, width = window.getmaxyx()
+    if 0 <= y < height and 0 <= x < width - 1:
+        try:
+            window.addstr(y, x, clip(text, width - x - 1), attribute)
+        except curses.error:
+            pass
+
+
+class PopupStyle:
+    """Use the outer terminal's Noctalia palette, never redefine RGB colors."""
+    def __init__(self):
+        self.accent = curses.A_BOLD
+        self.muted = curses.A_DIM
+        self.border = curses.A_DIM
+        self.error = curses.A_BOLD
+
+    @classmethod
+    def terminal(cls):
+        style = cls()
+        try:
+            if not curses.has_colors():
+                return style
+            curses.start_color()
+            curses.use_default_colors()
+            # ANSI magenta/red/white/bright-black are theme-owned semantic slots.
+            # -1 preserves the terminal background on dark and light palettes.
+            for pair, foreground in ((1, 5), (2, 1), (3, 7), (4, 8 if curses.COLORS > 8 else 7)):
+                curses.init_pair(pair, foreground, -1)
+            style.accent = curses.color_pair(1)
+            style.error = curses.color_pair(2)
+            style.muted = curses.color_pair(3)
+            style.border = curses.color_pair(4)
+        except curses.error:
+            pass  # Monochrome/limited terminal: retain readable emphasis.
+        return style
+
+
+def error_popup(window, message, style=None):
+    style = style or PopupStyle()
+    # Deliberately no title, footer, button label or dismissal hint.
+    while True:
+        height, width = window.getmaxyx()
+        window.erase()
+        lines = textwrap.wrap(clean(message), max(10, width - 6))
+        top = max(0, (height - len(lines)) // 2)
+        for index, line in enumerate(lines[:height]):
+            put(window, top + index, 3, line, style.error)
+        curses.curs_set(0)
+        window.refresh()
+        if read_key(window) in ("\n", "\r", curses.KEY_ENTER, "\x1b", "\x03"):
+            return
+
+
+DEFAULT_MODEL = ("openai-codex", "gpt-6-astra")
+
+
+def parse_models(output):
+    lines = [line.split() for line in output.splitlines() if line.strip()]
+    if not lines or lines[0] != ['provider', 'model', 'context', 'max-out', 'thinking', 'images']:
+        raise core.LaunchError("No model list available. Check pi --list-models.")
+    models = set()
+    for row in lines[1:]:
+        if len(row) != 6 or row[4] not in ('yes', 'no') or row[5] not in ('yes', 'no'):
+            raise core.LaunchError("Unexpected Pi model-list format. Check pi --list-models.")
+        models.add((row[0], row[1]))
+    return sorted(models)
+
+
+def available_models(repo):
+    # Use Pi's provider/auth/extension discovery, not a duplicated static catalog.
+    # No prompt, session, credential printing or model inference is involved.
+    result = subprocess.run(['pi', '--list-models', '--no-session'], cwd=repo,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            env={**os.environ, 'NO_COLOR': '1',
+                                 # Herdr popup processes do not source pi.fish.
+                                 # Match feature-start's worker-extension directory.
+                                 'PI_CODING_AGENT_DIR': os.environ.get('PI_CODING_AGENT_DIR', str(Path.home() / '.config/pi'))},
+                            timeout=25)
+    if result.returncode or result.stderr.strip():
+        raise core.LaunchError("Pi model discovery reported an error. Check pi --list-models.")
+    return parse_models(result.stdout)
+
+
+def fuzzy_models(models, query):
+    matches = []
+    for model in models:
+        label = '/'.join(model).casefold()
+        score = 0
+        for word in query.casefold().split():
+            position, first = -1, None
+            for char in word:
+                position = label.find(char, position + 1)
+                if position < 0:
+                    break
+                if first is None:
+                    first = position
+            if position < 0:
+                break
+            score += position - first + 1 - len(word) + first
+        else:
+            matches.append((score, model))
+    return [model for _, model in sorted(matches)]
+
+
+def model_picker(window, repo, current, style):
+    query, selected, models, failure = Editor(), 0, None, ''
+    results = queue.Queue()
+    def load():
+        try:
+            results.put((available_models(repo), ''))
+        except core.LaunchError as exc:
+            results.put(([], str(exc)))
+        except subprocess.TimeoutExpired:
+            results.put(([], 'Pi model discovery timed out. Esc to return and retry.'))
+        except Exception:
+            results.put(([], 'Cannot load models. Check pi --list-models; Esc to return.'))
+    threading.Thread(target=load, daemon=True).start()
+    window.timeout(100)
+    try:
+        while True:
+            if models is None:
+                try:
+                    models, failure = results.get_nowait()
+                    selected = models.index(current) if current in models and not query.text.strip() else 0
+                except queue.Empty:
+                    pass
+            matches = fuzzy_models(models or [], query.text)
+            selected = min(selected, max(0, len(matches) - 1))
+            height, width = window.getmaxyx()
+            window.erase()
+            put(window, 1, 2, 'Choose model', style.accent | curses.A_BOLD)
+            query_start = max(0, query.pos - max(1, width - 12))
+            put(window, 3, 2, 'Search  ' + query.text[query_start:], style.accent)
+            detail = textwrap.wrap('/'.join(matches[selected]), max(1, width - 4))[:3] if matches else []
+            count = max(1, height - 8 - len(detail))
+            offset = max(0, selected - count + 1)
+            if models is None or failure or not matches:
+                put(window, 5, 2, failure or ('Loading Pi models…' if models is None else 'No matching models'),
+                    style.error if failure else style.muted)
+            for index, model in enumerate(matches[offset:offset + count], offset):
+                put(window, 5 + index - offset, 2, ('› ' if index == selected else '  ') + '/'.join(model),
+                    style.accent | curses.A_BOLD if index == selected else 0)
+            for index, line in enumerate(detail):
+                put(window, height - 3 - len(detail) + index, 2, line, style.muted)
+            put(window, height - 2, 2, '↑↓: select   Enter: accept   Esc: cancel', style.muted)
+            if height > 4 and width > 12:
+                curses.curs_set(1)
+                window.move(3, min(width - 2, 10 + query.pos - query_start))
+            else:
+                curses.curs_set(0)
+            window.refresh()
+            try:
+                window.timeout(100)  # read_key restores blocking mode after bracketed paste.
+                key = read_key(window)
+            except curses.error:
+                continue
+            if key in ('\x1b', '\x03'):
+                return current
+            if key in ('\n', '\r', curses.KEY_ENTER) and matches:
+                return matches[selected]
+            if key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
+                delta = {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -count, curses.KEY_NPAGE: count}[key]
+                selected = max(0, min(len(matches) - 1, selected + delta))
+            else:
+                before = query.text
+                if isinstance(key, tuple):
+                    query.insert(clean(key[1])[:max(0, 256 - len(query.text))])
+                elif not isinstance(key, str) or not key.isprintable() or len(query.text) < 256:
+                    query.key(key)
+                if query.text != before:
+                    selected = 0
+    finally:
+        window.timeout(-1)
+
+
+def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL):
+    # A fresh read-only check on Ctrl-S and again inside feature-start.
+    fresh = core.preflight(admitted["repo"], admitted["base"])
+    if fresh["repo"] != admitted["repo"] or fresh["common"] != admitted["common"]:
+        raise core.LaunchError("Repository identity changed while the form was open")
+    root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "feature-workflow"
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix="popup-", dir=root) as directory:
+        path = Path(directory) / "brief.md"
+        path.write_text(brief)
+        context = Path(directory) / "context.md"
+        context.write_text(
+            f"This feature was requested directly through Herdr, not an orchestrator conversation.\n"
+            f"Read current source-checkout instructions at {fresh['repo']}/AGENTS.md and, if present, "
+            f"{fresh['repo']}/docs/development-workflow.md read-only. The source may have local instruction updates "
+            "not yet in the new branch; honor current workflow/approval rules without copying or changing those files.\n")
+        command = [str(LAUNCHER), name, "--repo", fresh["repo"], "--base", fresh["base"],
+                   "--origin-pane", pane, "--brief-file", str(path), "--context-file", str(context),
+                   "--provider", model[0], "--model", model[1]]
+        if fresh["require_sibling"]:
+            command.append("--require-sibling")
+        result = subprocess.run(command, text=True, capture_output=True)
+        try:
+            receipt = json.loads(result.stdout if result.returncode == 0 else result.stderr)
+        except ValueError:
+            raise core.LaunchError("Launcher response was not valid JSON; inspect existing resources before retrying") from None
+        if result.returncode != 0 or not receipt.get("ok"):
+            raise core.LaunchError(f"{receipt.get('error', 'Launch failed')}\nReceipt: {receipt.get('receipt', 'unavailable')}")
+        return receipt
+
+
+def form(window, pane, admitted, style=None):
+    style = style or PopupStyle()
+    name, brief = Editor(), Editor(multiline=True)
+    model = DEFAULT_MODEL
+    field, error, blocked, running = 0, "", False, False
+    results = queue.Queue()
+
+    def start():
+        try:
+            results.put((execute_launch(pane, admitted, name.text, brief.text, model), None))
+        except Exception as exc:
+            results.put((None, str(exc)))
+
+    while True:
+        height, width = window.getmaxyx()
+        window.erase()
+        if height < 15 or width < 40:
+            put(window, 0, 0, "Window too small for feature form", style.error)
+        else:
+            put(window, 1, 2, "New feature", style.accent | curses.A_BOLD)
+            put(window, 3, 2, "Repository", style.muted)
+            put(window, 3, 14, admitted["repo"])
+            put(window, 4, 2, "Base", style.muted)
+            put(window, 4, 14, admitted['base'])
+            put(window, 5, 2, "Model ^P", style.muted)
+            put(window, 5, 14, '/'.join(model))
+            put(window, 6, 2, "Name", style.accent | curses.A_BOLD if field == 0 else style.muted)
+            # Scroll long name input rather than losing the cursor.
+            name_start = max(0, name.pos - (width - 14))
+            put(window, 6, 10, name.text[name_start:])
+            put(window, 7, 10, "─" * (width - 13), style.accent if field == 0 else style.border)
+            put(window, 8, 2, "Brief", style.accent | curses.A_BOLD if field == 1 else style.muted)
+            put(window, 8, 9, "─" * (width - 12), style.accent if field == 1 else style.border)
+            error_lines = textwrap.wrap(clean(error), width - 4)[:5] if error else []
+            body_height = max(1, height - 12 - len(error_lines))
+            rows, cursor = brief.layout(width - 5)
+            offset = max(0, cursor[0] - body_height + 1)
+            for index, line in enumerate(rows[offset:offset + body_height]):
+                put(window, 9 + index, 2, line)
+            for index, line in enumerate(error_lines):
+                put(window, height - 3 - len(error_lines) + index, 2, line, style.error)
+            footer = "Launching and verifying worker…" if running else (
+                "Launch stopped; inspect receipt before retrying. Esc: close" if blocked else "Tab: field  ^P: model  ^S: launch  Esc: cancel")
+            put(window, height - 2, 2, footer, style.muted)
+            if not running:
+                curses.curs_set(1)
+                if field == 0:
+                    window.move(6, min(width - 2, 10 + name.pos - name_start))
+                else:
+                    window.move(9 + cursor[0] - offset, 2 + cursor[1])
+            else:
+                curses.curs_set(0)
+        window.refresh()
+        if running:
+            try:
+                receipt, failure = results.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            running = False
+            # Discard keys typed during submission; they must not replay into the form/worker.
+            curses.flushinp()
+            if failure:
+                error, blocked = failure, True
+                continue
+            try:
+                core.herdr("tab", "focus", receipt["tab"])
+            except Exception as exc:
+                error, blocked = f"Worker started in {receipt['tab']}, but focus failed: {exc}", True
+                continue
+            return
+        key = read_key(window)
+        if key in ("\x1b", "\x03"):
+            return
+        if height < 15 or width < 40:
+            continue
+        if isinstance(key, tuple):
+            (name if field == 0 else brief).insert(key[1])
+        elif key in ("\t", curses.KEY_BTAB):
+            field = 1 - field
+        elif key == "\x10" and not blocked:
+            model = model_picker(window, admitted['repo'], model, style)
+        elif key == "\x13" and not blocked:
+            if not core.re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", name.text) or len(name.text) > 48:
+                error, field = "Use a lowercase name such as email-table (maximum 48 characters)", 0
+            elif not brief.text.strip():
+                error, field = "A brief is required", 1
+            else:
+                error, running = "", True
+                threading.Thread(target=start, daemon=True).start()
+        else:
+            (name if field == 0 else brief).key(key)
+
+
+def ui(window, admitted, pane, error):
+    curses.raw()  # Ctrl-S belongs to this form, not terminal software flow control.
+    window.keypad(True)
+    curses.set_escdelay(25)
+    style = PopupStyle.terminal()
+    sys.stdout.write("\x1b[?2004h"); sys.stdout.flush()
+    try:
+        if error:
+            error_popup(window, error, style)
+        else:
+            form(window, pane, admitted, style)
+    finally:
+        sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
+
+
+def main():
+    os.umask(0o077)
+    locale.setlocale(locale.LC_ALL, "")
+    pane, admitted, error = None, None, None
+    try:
+        pane, cwd = origin_context()
+        admitted = core.preflight(cwd)
+        core.herdr("pane", "get", pane)  # Validate explicit origin exists; never use global focus.
+    except Exception as exc:
+        error = str(exc)
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print(error or "Feature popup requires a terminal", file=sys.stderr)
+        return 1
+    curses.wrapper(ui, admitted, pane, error)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

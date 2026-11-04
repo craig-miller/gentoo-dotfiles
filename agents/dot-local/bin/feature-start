@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""Launch an isolated Stax/Herdr/Pi feature; no shell interpolation or auto-cleanup."""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tomllib
+import sys
+import time
+import uuid
+
+
+class LaunchError(Exception):
+    pass
+
+
+def run(args, cwd=None, timeout=30):
+    result = subprocess.run(args, cwd=cwd, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=timeout)
+    if result.returncode:
+        raise LaunchError(f"{args[0]} {args[1:3]} failed: {result.stderr or result.stdout}")
+    return result.stdout.strip()
+
+
+def herdr(*args, timeout=30):
+    reply = json.loads(run(["herdr", *args], timeout=timeout))
+    if "error" in reply:
+        raise LaunchError(str(reply["error"]))
+    return reply["result"]
+
+
+def write_json(path, value):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def read_text(path):
+    value = (sys.stdin.buffer.read() if path == "-" else Path(path).read_bytes()).decode("utf-8")
+    if not value.strip() or len(value.encode()) > 128 * 1024:
+        raise LaunchError("Brief/context must be nonempty and at most 128 KiB")
+    return value
+
+
+def wait_json(path, timeout=20):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return json.loads(path.read_text())
+        time.sleep(0.1)
+    raise LaunchError(f"Timed out awaiting {path}; inspect receipt/worker before retrying")
+
+
+def validate_identity(expected, observed, agent):
+    if observed.get("error"):
+        raise LaunchError(f"Worker readiness failed: {observed['error']}")
+    for key in ("nonce", "cwd", "branch", "head", "session", "provider", "model", "pane", "tab", "workspace"):
+        if observed.get(key) != expected[key]:
+            raise LaunchError(f"Worker identity mismatch: {key}")
+    if observed["session"] == expected.get("parent_session"):
+        raise LaunchError("Worker reused the parent session")
+    session_file = observed.get("session_file")
+    if not session_file or agent.get("agent_session", {}).get("value") != session_file:
+        raise LaunchError("Herdr and worker disagree on session file")
+    if agent.get("agent") != "pi" or agent.get("pane_id") != expected["pane"]:
+        raise LaunchError("Expected Pi does not occupy the assigned pane")
+    if Path(agent.get("foreground_cwd", "")).resolve() != Path(expected["cwd"]):
+        raise LaunchError("Herdr foreground cwd mismatch")
+    if agent.get("agent_status") not in ("idle", "done"):
+        raise LaunchError("Worker not idle; refusing to inject a task")
+
+
+def worktree_for(repo, branch):
+    # -z avoids Git's quoting of paths containing whitespace/non-ASCII.
+    fields = subprocess.check_output(["git", "-C", str(repo), "worktree", "list", "--porcelain", "-z"]).decode().split("\0")
+    path = None
+    for field in fields:
+        if field.startswith("worktree "):
+            path = field[9:]
+        elif field == "branch refs/heads/" + branch:
+            return Path(path).resolve()
+    raise LaunchError("Stax did not create the requested branch/worktree")
+
+
+def preflight(directory, base="main"):
+    """Read-only repo admission, shared by popup and launch-time validation."""
+    for executable in ("git", "stax", "herdr", "pi"):
+        if not shutil.which(executable):
+            raise LaunchError(f"Required command is unavailable: {executable}")
+    try:
+        inside = run(["git", "-C", str(directory), "rev-parse", "--is-inside-work-tree"])
+        if inside != "true":
+            raise LaunchError("Not inside a non-bare Git working tree")
+        repo = Path(run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"])).resolve()
+    except LaunchError:
+        raise LaunchError(f"Not a worktree-compatible Git repository: {directory}") from None
+    if run(["git", "-C", str(repo), "rev-parse", "--show-superproject-working-tree"]):
+        raise LaunchError("Launching from a Git submodule is not supported")
+    run(["git", "check-ref-format", "--branch", base])
+    try:
+        head = run(["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{base}^{{commit}}"])
+    except LaunchError:
+        raise LaunchError(f"Local integration branch '{base}' is missing or has no commit") from None
+    common = Path(run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"]))
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer", "index.lock"):
+        path = Path(run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-path", marker]))
+        if path.exists():
+            raise LaunchError(f"Repository operation in progress: {marker}")
+    if run(["git", "-C", str(repo), "ls-files", "--unmerged"]):
+        raise LaunchError("Repository has unresolved merge conflicts")
+    if not os.access(common, os.W_OK | os.X_OK):
+        raise LaunchError("Git metadata is not writable")
+    # No fetch, stash, reset, metadata repair or worktree creation in preflight.
+    stax_refs = run(["git", "-C", str(repo), "for-each-ref", "--format=%(refname)",
+                     "refs/stax/trunk", "refs/branch-metadata"]).splitlines()
+    if "refs/stax/trunk" in stax_refs:
+        run(["stax", "validate"], cwd=repo)
+    elif stax_refs:
+        raise LaunchError("Incomplete Stax metadata: trunk is not configured")
+    # On an uninitialized repo, `stax validate` can enter interactive setup.
+    # Explicit --from base makes creation possible; do not initialize during preflight.
+    config = {}
+    global_config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "stax/config.toml"
+    for path in (global_config, repo / "stax.toml"):
+        if path.exists():
+            config.update(tomllib.loads(path.read_text()).get("worktree", {}))
+    root_setting = config.get("root_dir", "")
+    if not isinstance(root_setting, str):
+        raise LaunchError("Stax worktree.root_dir must be a path string")
+    target_root = Path(root_setting).expanduser() if root_setting else Path.home() / ".stax/worktrees" / repo.name
+    if not target_root.is_absolute():
+        target_root = repo / target_root
+    target_root = target_root.resolve()
+    ancestor = target_root
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    if not ancestor.is_dir() or not os.access(ancestor, os.W_OK | os.X_OK):
+        raise LaunchError(f"Worktree destination is not writable: {target_root}")
+    return {"repo": str(repo), "base": base, "head": head, "common": str(common),
+            "require_sibling": target_root == repo.parent}
+
+
+def launch(args, receipt, save):
+    if os.environ.get("HERDR_ENV") != "1":
+        raise LaunchError("Run inside a Herdr-managed pane (HERDR_ENV=1)")
+    if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", args.name) or len(args.name) > 48:
+        raise LaunchError("Use a lowercase feature slug, e.g. email-table (maximum 48 characters)")
+    brief = read_text(args.brief_file)
+    context = read_text(args.context_file) if args.context_file else ""
+    admitted = preflight(args.repo, args.base)
+    repo, common = Path(admitted["repo"]), Path(admitted["common"])
+    lock_path = receipt.parent.parent / (hashlib.sha256(str(common).encode()).hexdigest() + ".lock")
+    with lock_path.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise LaunchError("Another feature launch is active for this repository")
+        branch = "feature/" + args.name
+        run(["git", "check-ref-format", "--branch", args.base])
+        head = run(["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{args.base}^{{commit}}"])
+        exists = subprocess.run(["git", "-C", str(repo), "show-ref", "--verify", "--quiet", "refs/heads/" + branch]).returncode
+        if exists != 1:
+            raise LaunchError("Branch already exists (or ref lookup failed); never reuse it implicitly")
+        expected_path = repo.parent / (repo.name + "-" + args.name)
+        if args.require_sibling and expected_path.exists():
+            raise LaunchError(f"Destination exists: {expected_path}")
+        origin = getattr(args, "origin_pane", None)
+        caller = (herdr("pane", "get", origin) if origin else herdr("pane", "current", "--current"))["pane"]
+        worker_extension = Path(os.environ.get("PI_CODING_AGENT_DIR", str(Path.home() / ".config/pi"))) / "extensions/feature-workflow/worker.ts"
+        if not worker_extension.is_file():
+            raise LaunchError(f"Missing worker bridge: {worker_extension}; restow pi first")
+        state = {"version": 1, "nonce": str(uuid.uuid4()), "name": args.name,
+                 "repo": str(repo), "base": args.base, "head": head, "branch": branch,
+                 "cwd": str(expected_path), "session": str(uuid.uuid4()),
+                 "parent_session": os.environ.get("PI_SESSION_ID"),
+                 "provider": args.provider, "model": args.model,
+                 "workspace": caller["workspace_id"], "brief": brief, "context": context,
+                 "agent_name": "feature-" + uuid.uuid4().hex[:12], "phase": "preflight"}
+        # Read-only snapshot: expose dirty scope, never stash/copy/stage it.
+        state["source_status"] = run(["git", "-C", str(repo), "status", "--short"])
+        save(state)
+        state["phase"] = "creating_worktree"
+        save(state)
+        run(["stax", "worktree", "create", branch, "--from", args.base,
+             "--name", expected_path.name], cwd=repo, timeout=60)
+        actual = worktree_for(repo, branch)
+        state["cwd"] = str(actual)
+        save(state)
+        if actual == repo or (args.require_sibling and actual != expected_path):
+            raise LaunchError("Stax worktree location violates the requested isolation/sibling boundary; inspect receipt")
+        if run(["git", "-C", str(actual), "rev-parse", "HEAD"]) != head:
+            raise LaunchError("Stax base differs from captured local base HEAD")
+        if run(["git", "-C", str(actual), "status", "--porcelain"]):
+            raise LaunchError("New worktree is not clean; inspect hooks/warm-slot contents")
+        state["phase"] = "creating_tab"
+        save(state)
+        tab = herdr("tab", "create", "--workspace", state["workspace"], "--cwd", str(actual),
+                    "--label", args.name, "--no-focus")
+        state.update(pane=tab["root_pane"]["pane_id"], tab=tab["tab"]["tab_id"], phase="starting_pi")
+        save(state)
+        request = receipt.parent / "request.json"
+        write_json(request, state)
+        guard = (f"You are the independent worker for {branch} in {actual}. "
+                 f"Only this worktree is writable for feature work. The source checkout {repo} and sibling dependencies are read-only. "
+                 "Do not implement or build in the orchestrator checkout. Before edits, read applicable repository instructions. "
+                 "Perform only the phase authorized in the supplied brief; absent explicit implementation authorization, investigate reuse, design and plan, then stop for review. "
+                 "Commit, merge, push, cleanup, live configuration changes and live app/provider input require separate authorization. "
+                 "Do not infer implementation permission from successful startup. Report blockers; do not delegate back silently.")
+        herdr("agent", "start", state["agent_name"], "--kind", "pi", "--pane", state["pane"],
+              "--timeout", "60000", "--", "--provider", args.provider, "--model", args.model,
+              "--session-id", state["session"], "--name", args.name,
+              "--extension", str(worker_extension), "--feature-request", str(request),
+              "--append-system-prompt", guard, timeout=75)
+        observed = wait_json(receipt.parent / "ready.json")
+        agent = herdr("agent", "get", state["agent_name"])["agent"]
+        validate_identity(state, observed, agent)
+        state.update(phase="verified", worker=observed)
+        save(state)
+        write_json(receipt.parent / "release.json", {"nonce": state["nonce"]})
+        delivered = wait_json(receipt.parent / "delivery.json", timeout=20)
+        if delivered.get("nonce") != state["nonce"] or delivered.get("status") != "submitted":
+            raise LaunchError(f"Delivery not confirmed: {delivered}")
+        # Submitted is not task completion: the worker continues independently.
+        state["phase"] = "submitted"
+        save(state)
+        return state
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("name")
+    parser.add_argument("--brief-file", required=True, help="UTF-8 brief file, or - for stdin; preserved verbatim")
+    parser.add_argument("--context-file", help="Separate optional context, never a replacement for the brief")
+    parser.add_argument("--repo", default=os.getcwd())
+    parser.add_argument("--origin-pane", help="Frozen originating pane ID (required by Herdr popup callers)")
+    parser.add_argument("--base", default="main", help="Existing local integration branch; no implicit fetch")
+    parser.add_argument("--require-sibling", action="store_true", help="Require Stax to use ../<repo>-<name>, for relative dependencies")
+    parser.add_argument("--provider", default="openai-codex")
+    parser.add_argument("--model", default="gpt-6-astra")
+    args = parser.parse_args()
+    os.umask(0o077)
+    root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "feature-workflow"
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory = root / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    receipt = directory / "receipt.json"
+    latest = {"phase": "initializing"}
+
+    def save(state):
+        latest.update(state)
+        write_json(receipt, latest)
+
+    try:
+        state = launch(args, receipt, save)
+        print(json.dumps({"ok": True, "receipt": str(receipt), **{key: state[key] for key in
+              ("phase", "cwd", "branch", "session", "provider", "model", "agent_name", "pane", "tab")}}, indent=2))
+    except (LaunchError, OSError, ValueError, KeyError, subprocess.SubprocessError, KeyboardInterrupt) as error:
+        save({"failed_at": latest["phase"], "phase": "failed", "error": str(error) or "Interrupted"})
+        print(json.dumps({"ok": False, "error": latest["error"], "receipt": str(receipt),
+              "note": "No automatic retry/cleanup. Inspect receipt and created resources; task delivery may be uncertain."}, indent=2), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
