@@ -41,7 +41,7 @@ Use `feature-attach RECEIPT --worker EPOCH --coordinator EPOCH` to attach report
 
 ## Completion
 
-Cleanup is part of the standard completion workflow, not an optional step to leave for Craig to notice. After live acceptance and review, explicitly include commit, integration, installation (if applicable), and cleanup in the completion approval request; offer push as a separate decision. If cleanup was omitted from an earlier approval, proactively ask before calling the workflow finished.
+After live acceptance and review, complete this checklist: **commit → integrate → install if applicable → push or explicitly defer → cleanup → verify**. Explicitly include commit, integration, installation and cleanup in the completion approval request. Always ask Craig to approve or explicitly defer pushing; integration approval alone never authorizes push. If push or cleanup was omitted from an earlier request, proactively ask rather than waiting for Craig to notice. Do not declare the workflow finished with either decision unresolved. After an approved push, verify the remote branch matches the intended commit. Report any explicit deferral in the final completion summary.
 
 Once authorized, verify the exact reviewed commit is integrated, the worker is idle, its tree is clean, and no live configuration or app process depends on its checkout. Close only the owned worker tab/panes and remove its integrated feature branch/worktree, including any detached warm checkout Stax retains. Preserve session transcripts, review feedback and receipts. Report any blocker instead of forcing removal. Never close the coordinator or unrelated work. No automatic cleanup after failed or uncertain launches.
 
