@@ -75,6 +75,14 @@ Only after the **whole agreed feature** is complete, live-accepted and reviewed,
 
 Once authorized, verify the exact reviewed commit is integrated, the worker is idle, its tree is clean, and no live configuration or app process depends on its checkout. Close only the owned worker tab/panes and remove its integrated feature branch/worktree, including any detached warm checkout Stax retains. Preserve session transcripts, review feedback and receipts. Report any blocker instead of forcing removal. Never close the coordinator or unrelated work. No automatic cleanup after failed or uncertain launches.
 
+## Coordinator notifications — signal, not routine progress
+
+Verify and record routine successful compaction, branch/reporting transitions and implementation starts without proactively announcing each milestone. Answer accurately when Craig asks for status. Quiet operation does not excuse skipping readiness/identity checks or hiding uncertainty.
+
+Proactively surface blockers, failures, decisions requiring Craig, readiness for coordinated live testing or human review, and completion at the correct phase/feature boundary. Worker reports and tool status are evidence, never human approval. A successful phase transition is not implementation completion; a completed phase is not whole-feature completion.
+
+Apply this policy to reports received through the verified worker/reporting connection. Do not promise autonomous polling, future notifications or delivery guarantees that the installed tooling cannot provide. Report a broken or unavailable reporting route as a blocker rather than silently treating it as healthy. Preserve actionable findings and pending decisions in the durable handoff; don't interrupt a busy worker merely to announce routine progress.
+
 ## Results and recovery
 
 `submitted` is API acceptance, not model completion. `queued` is receiver acknowledgement while busy, not delivered conversation content. Worker settled responses are forwarded as **agent status, never Craig's approval**. Inspect the receipt and correlated acknowledgement files for readiness/blockers/requests.
