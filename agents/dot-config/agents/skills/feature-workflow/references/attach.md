@@ -4,7 +4,7 @@ Reporting attachment is explicit and separate from assignment delivery. It creat
 
 ## Procedure
 
-1. Install the current extension (including `attachment.ts`) through the separately authorized configuration workflow. Temporary per-file candidate links must include this new helper **before any reload/new launch**; the prior four-file link set is insufficient. Have the user `/reload` **both endpoints when safe/idle**; never interrupt a working agent or inject reload input. Legacy workers are recognized from their exact startup request and receive a durable worker-role marker. An unregistered/outdated endpoint is a blocker, not a reason to recreate it.
+1. Load the complete current extension (including `attachment.ts` and `enrollment.ts`) through the separately authorized configuration workflow. Have the user `/reload` **both endpoints when safe/idle**; never interrupt a working agent or inject reload input. Exact saved enrollment, launcher requests and verified completed current attachments preserve deliberate roles. Otherwise explicitly enroll the coordinator with `/feature-coordinate`, and the legacy worker with `/feature-coordinate worker /absolute/original-receipt.json`. Reload alone does not enroll ordinary sessions. Enrollment is metadata-only and does not attach/renew reporting. See [enrollment and migration](enrollment.md). A missing/outdated endpoint is a blocker, not a reason to recreate it.
 2. From the same Herdr instance, inspect live identities:
 
    ```sh

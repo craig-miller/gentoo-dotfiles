@@ -155,7 +155,7 @@ def main():
         print(json.dumps(attach(args), indent=2))
         return 0
     except (Exception, KeyboardInterrupt) as error:
-        print(json.dumps({'ok': False, 'error': str(error), 'note': 'Both endpoints require the current attachment extension and user-controlled /reload when safe. No resources launched, no original receipt edited, no assignment/report replay.'}, indent=2), file=sys.stderr)
+        print(json.dumps({'ok': False, 'error': str(error), 'note': 'Both endpoints require the current extension and explicit enrollment: /feature-coordinate for a coordinator, /feature-coordinate worker RECEIPT for a legacy worker. Load/reload only when authorized and safe, then select fresh epochs. No resources launched, no original receipt edited, no assignment/report replay.'}, indent=2), file=sys.stderr)
         return 1
 
 

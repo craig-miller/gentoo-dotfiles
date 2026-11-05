@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='fc-') as directory:
     # Match candidate testing's individual-file links, including the new helper.
     # This setup is private to the fixture; live links are never modified.
     (config / 'extensions/feature-workflow').mkdir()
-    for module in ('index.ts', 'worker.ts', 'coordination.ts', 'protocol.ts', 'attachment.ts', 'phase.ts', 'phase-record.ts', 'context-policy.ts', 'followup.ts'):
+    for module in ('index.ts', 'worker.ts', 'coordination.ts', 'protocol.ts', 'attachment.ts', 'phase.ts', 'phase-record.ts', 'context-policy.ts', 'followup.ts', 'enrollment.ts'):
         (config / 'extensions/feature-workflow' / module).symlink_to(ROOT / 'pi/dot-config/pi/extensions/feature-workflow' / module)
     (config / 'extensions/offline.ts').symlink_to(ROOT / '.tests/feature-workflow/offline-provider.ts')
     # Reuse the installed integration read-only; never install/update live agents.
@@ -202,7 +202,7 @@ with tempfile.TemporaryDirectory(prefix='fc-') as directory:
             alternate_tab = cli('tab', 'create', '--cwd', str(repo), '--label', 'rebind-target', '--no-focus')
             alternate_pane = alternate_tab['root_pane']['pane_id']
             cli('agent', 'start', 'rebind-target', '--kind', 'pi', '--pane', alternate_pane, '--timeout', '60000', '--',
-                '--provider', 'feature-offline', '--model', 'coordinator')
+                '--provider', 'feature-offline', '--model', 'coordinator', '--feature-role', 'coordinator')
             alternate_file = cli('agent', 'get', alternate_pane)['agent']['agent_session']['value']
             def alternate_registration():
                 for path in (tmp / 'state/feature-workflow/sessions').glob('*.json'):
@@ -286,37 +286,56 @@ with tempfile.TemporaryDirectory(prefix='fc-') as directory:
         other_pane = other_tab['root_pane']['pane_id']
         assert other_pane == target['pane'], (other_pane, target['pane'])
         print('CHECK second isolated server ready; starting colliding-pane coordinator', flush=True)
+        other_session = str(uuid.uuid4())
         other('agent', 'start', 'other-coordinator', '--kind', 'pi', '--pane', other_pane, '--timeout', '60000', '--',
-              '--provider', 'feature-offline', '--model', 'coordinator')
+              '--provider', 'feature-offline', '--model', 'coordinator', '--session-id', other_session)
         print('CHECK second coordinator started', flush=True)
         other_snapshot = other('pane', 'get', other_pane)['pane']
         def other_registration():
             for path in (tmp / 'state/feature-workflow/sessions').glob('*.json'):
                 item = json.loads(path.read_text())
-                if item['session_file'] == other_snapshot['agent_session']['value']: return item
+                if item['session_file'] == other_snapshot['agent_session']['value'] and item.get('live'): return item
+        time.sleep(1.2)
+        assert other_registration() is None, 'Ordinary Git/Herdr session automatically enrolled'
+        controls = tmp / 'state/offline-controls' / other_session
+        until(lambda: controls.is_dir())
+        (controls / 'activate.json').write_text(json.dumps({'action': 'activate'}))
         other_reg = until(other_registration)
+        assert other_reg['enrollment']['source'] == 'explicit-command'
+        first_epoch = other_reg['epoch']
+        (controls / 'reload.json').write_text(json.dumps({'action': 'reload'}))
+        other_reg = until(lambda: (r if (r := other_registration()) and r['epoch'] != first_epoch else None))
+        assert other_reg['enrollment']['source'] == 'explicit-command'
+        print('PASS native ordinary Git/Herdr remains unenrolled; explicit command enrolls without launch and persists across reload', flush=True)
         assert other_reg['instance'] != target['instance']
         assert probe(other_snapshot, other_reg['instance'])['selected']['epoch'] == other_reg['epoch']
         assert all(item['instance'] == other_reg['instance'] for item in probe(other_snapshot, other_reg['instance'])['listed'])
         assert probe(captured, target['instance'])['selected']['epoch'] == target['epoch']
-        # Unregistered actual Pi: only test provider and read-only installed Herdr integration loaded.
+        # Ordinary actual Pi with the full candidate loaded: no implicit enrollment.
         unregistered_tab = cli('tab', 'create', '--cwd', str(repo), '--label', 'unregistered', '--no-focus')
         unknown_pane = unregistered_tab['root_pane']['pane_id']
         cli('agent', 'start', 'unregistered', '--kind', 'pi', '--pane', unknown_pane, '--timeout', '60000', '--',
-            '--no-extensions', '--extension', str(config / 'extensions/offline.ts'),
-            '--extension', str(config / 'extensions/herdr-agent-state.ts'), '--provider', 'feature-offline', '--model', 'coordinator')
+            '--provider', 'feature-offline', '--model', 'coordinator')
         unknown = cli('pane', 'get', unknown_pane)['pane']
         assert probe(unknown, target['instance'])['selected']['unregistered']
         cli('tab', 'focus', unregistered_tab['tab']['tab_id'])
         time.sleep(.3)
         drain()
         os.write(fd, b'\x02f')
-        until(lambda: 'Unregistered invoking Pi' in screen(transcript) and '/reload' in screen(transcript))
+        until(lambda: 'Unenrolled invoking Pi' in screen(transcript) and '/feature-coordinate' in screen(transcript))
         os.write(fd, b'\x1b')
+        documents = tmp / 'documents'; documents.mkdir()
+        document_tab = cli('tab', 'create', '--cwd', str(documents), '--label', 'ordinary-documents', '--no-focus')
+        document_pane = document_tab['root_pane']['pane_id']
+        cli('agent', 'start', 'ordinary-documents', '--kind', 'pi', '--pane', document_pane, '--timeout', '60000', '--', '--provider', 'feature-offline', '--model', 'worker')
+        document_file = cli('agent', 'get', document_pane)['agent']['agent_session']['value']
+        time.sleep(1.2)
+        assert not any(json.loads(p.read_text()).get('session_file') == document_file for p in (tmp / 'state/feature-workflow/sessions').glob('*.json'))
+        print('PASS native ordinary non-Git session remains unenrolled with candidate loaded', flush=True)
         # Close only our synthetic second coordinator; stale captured identity must not fall back.
         other('tab', 'close', other_tab['tab']['tab_id'])
         assert probe(other_snapshot, other_reg['instance'])['selected']['unregistered']
-        print('PASS native colliding pane IDs across servers, unregistered Pi /reload guidance, closed destination rejection', flush=True)
+        print('PASS native colliding pane IDs across servers, unenrolled Pi activation guidance, closed destination rejection', flush=True)
     finally:
         if other_pid:
             subprocess.run(['herdr', '--session', NAME + '-b', 'server', 'stop'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

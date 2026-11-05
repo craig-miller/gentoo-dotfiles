@@ -33,6 +33,7 @@ class CoordinatorTests(unittest.TestCase):
         self.item = dict(instance=m.herdr_instance(), epoch=self.epoch, session='coordinator', session_file=str(self.session_file), common=str(self.repo / '.git'),
                          cwd=str(self.repo), pane='w:p1', tab='w:t1', workspace='w', role='coordinator', live=True,
                          updated=m.time.time() * 1000, provider='cp', model='cm')
+        self.item['enrollment'] = {**self.item, 'version': 1}
         self.agent = dict(agent='pi', pane_id='w:p1', tab_id='w:t1', workspace_id='w', foreground_cwd=str(self.repo), agent_session={'value': str(self.session_file)})
         m.write_json(self.registry / (self.epoch + '.json'), self.item)
         (m.state_root() / 'inbox' / self.epoch).mkdir(parents=True)
@@ -55,7 +56,7 @@ class CoordinatorTests(unittest.TestCase):
                 m.coordinator_identity(self.epoch, self.root / 'other/repo/.git')
 
     def test_stale_closed_replaced_and_wrong_role_refuse(self):
-        for changes in ({'live': False}, {'updated': 0}, {'role': 'worker'}, {'epoch': 'wrong'}):
+        for changes in ({'live': False}, {'updated': 0}, {'role': 'worker'}, {'epoch': 'wrong'}, {'enrollment': None}, {'enrollment': {}}):
             m.write_json(self.registry / (self.epoch + '.json'), {**self.item, **changes})
             with self.subTest(changes=changes), self.assertRaises(m.LaunchError):
                 m.coordinator_identity(self.epoch, self.item['common'])
@@ -106,6 +107,7 @@ class CoordinatorTests(unittest.TestCase):
                 agents[argv[2]] = agent
                 if request['role'] == 'coordinator':
                     item = {**self.item, **{k: observed[k] for k in ('session', 'session_file', 'pane', 'tab', 'provider', 'model')}}
+                    item['enrollment'] = {k: v for k, v in {**item, 'version': 1}.items() if k != 'enrollment'}
                     self.item = item
                     self.agent = agent
                     m.write_json(self.registry / (self.epoch + '.json'), item)

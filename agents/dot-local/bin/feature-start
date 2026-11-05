@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import stat
 import subprocess
@@ -16,6 +17,9 @@ import time
 import uuid
 
 
+freshness = runpy.run_path(str(Path(__file__).resolve().with_name('feature-preflight')))
+
+
 class LaunchError(Exception):
     pass
 
@@ -23,7 +27,7 @@ class LaunchError(Exception):
 def run(args, cwd=None, timeout=30):
     result = subprocess.run(args, cwd=cwd, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
-        raise LaunchError(f"{args[0]} {args[1:3]} failed: {result.stderr or result.stdout}")
+        raise LaunchError(freshness['diagnostic'](args, result))
     return result.stdout.strip()
 
 
@@ -122,8 +126,13 @@ def preflight(directory, base="main"):
     # No fetch, stash, reset, metadata repair or worktree creation in preflight.
     stax_refs = run(["git", "-C", str(repo), "for-each-ref", "--format=%(refname)",
                      "refs/stax/trunk", "refs/branch-metadata"]).splitlines()
+    validation = None
     if "refs/stax/trunk" in stax_refs:
-        run(["stax", "validate"], cwd=repo)
+        try:
+            validation = freshness['launch_validation'](repo, base)
+            validation['message'] = f'Local integration base {base} @ {head}; remote freshness unverified.\n' + validation['message']
+        except freshness['PreflightError'] as error:
+            raise LaunchError(f'Local integration base {base} @ {head}; remote freshness unverified.\n{error}') from None
     elif stax_refs:
         raise LaunchError("Incomplete Stax metadata: trunk is not configured")
     # On an uninitialized repo, `stax validate` can enter interactive setup.
@@ -146,7 +155,8 @@ def preflight(directory, base="main"):
     if not ancestor.is_dir() or not os.access(ancestor, os.W_OK | os.X_OK):
         raise LaunchError(f"Worktree destination is not writable: {target_root}")
     return {"repo": str(repo), "base": base, "head": head, "common": str(common),
-            "require_sibling": target_root == repo.parent}
+            "require_sibling": target_root == repo.parent, "validation": validation,
+            "remote_freshness": "unverified-no-network"}
 
 
 def state_root():
@@ -185,6 +195,12 @@ def session_identity(epoch, common, role="coordinator"):
                 or time.time() * 1000 - item["updated"] > 10000
                 or Path(item["common"]).resolve() != Path(common).resolve()):
             raise LaunchError(f"{role.capitalize()} registration is stale or incompatible; explicitly reselect")
+        enrollment = item.get("enrollment", {})
+        if (not isinstance(enrollment, dict) or enrollment.get("version") != 1 or enrollment.get("role") != role or
+                enrollment.get("instance") != item.get("instance") or
+                any(not isinstance(enrollment.get(k), str) or enrollment[k] != item.get(k)
+                    for k in ("session", "session_file", "cwd", "common", "pane", "tab", "workspace"))):
+            raise LaunchError("Session is not explicitly enrolled. Use /feature-coordinate (worker: include its original receipt), then select its current epoch")
         agent = herdr("agent", "get", item["pane"])["agent"]
         if (agent.get("agent") != "pi" or agent.get("pane_id") != item["pane"]
                 or agent.get("tab_id") != item["tab"] or agent.get("workspace_id") != item["workspace"]
@@ -296,6 +312,8 @@ def launch(args, receipt, save):
         branch = "feature/" + args.name
         run(["git", "check-ref-format", "--branch", args.base])
         head = run(["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{args.base}^{{commit}}"])
+        if head != admitted['head']:
+            raise LaunchError('Integration base changed after preflight; inspect and retry before creating resources')
         exists = subprocess.run(["git", "-C", str(repo), "show-ref", "--verify", "--quiet", "refs/heads/" + branch]).returncode
         if exists != 1:
             raise LaunchError("Branch already exists (or ref lookup failed); never reuse it implicitly")
@@ -315,6 +333,7 @@ def launch(args, receipt, save):
                  "workspace": caller["workspace_id"], "brief": brief, "context": context,
                  "agent_name": "feature-" + uuid.uuid4().hex[:12], "phase": "preflight"}
         # Read-only snapshot: expose dirty scope, never stash/copy/stage it.
+        state['preflight'] = admitted
         state["source_status"] = run(["git", "-C", str(repo), "status", "--short"])
         save(state)
         if coordinator is None:

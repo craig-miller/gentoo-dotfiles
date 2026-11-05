@@ -44,7 +44,11 @@ are stopped. The Linux `/proc/<test-pid>/fd` directory alias avoids AF_UNIX's
 Unit fixtures are removed at test end. No live installation, provider calls,
 user-server controls, source-checkout edits or feature cleanup are performed.
 
-There are 18 review-tool tests plus seven native review scenarios. The existing
-19 feature-workflow Bun tests also passed unchanged. Human-facing
+There are 20 review-tool tests plus seven existing native review scenarios. Two
+opt-in freshness-gate cases cover blocking before snapshot/launch, pinned evidence,
+changed-base refusal during verification and explicit renewed synchronization
+without reopening. Generic reviews remain unchanged. These new boundary cases
+use mocked Herdr/checker results; this supplement did not open a native review.
+The combined candidate also passes 52 feature-workflow Bun tests. Human-facing
 acceptance and review remain coordinator-managed, with separate authorization
 for live installation/reload and any commit/integration/push/feature cleanup.

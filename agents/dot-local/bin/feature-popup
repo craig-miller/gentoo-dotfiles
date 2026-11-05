@@ -216,18 +216,25 @@ class PopupStyle:
 
 def error_popup(window, message, style=None):
     style = style or PopupStyle()
-    # Deliberately no title, footer, button label or dismissal hint.
+    # Deliberately no title/footer. Long diagnostics remain available by scrolling.
+    offset = 0
     while True:
         height, width = window.getmaxyx()
         window.erase()
         lines = textwrap.wrap(clean(message), max(10, width - 6))
+        offset = min(offset, max(0, len(lines) - height))
         top = max(0, (height - len(lines)) // 2)
-        for index, line in enumerate(lines[:height]):
+        for index, line in enumerate(lines[offset:offset + height]):
             put(window, top + index, 3, line, style.error)
         curses.curs_set(0)
         window.refresh()
-        if read_key(window) in ("\n", "\r", curses.KEY_ENTER, "\x1b", "\x03"):
-            return
+        key = read_key(window)
+        if key in ("\n", "\r", curses.KEY_ENTER, "\x1b", "\x03"):
+            return key in ("\n", "\r", curses.KEY_ENTER)
+        if key in (curses.KEY_DOWN, curses.KEY_NPAGE):
+            offset += 1 if key == curses.KEY_DOWN else height
+        elif key in (curses.KEY_UP, curses.KEY_PPAGE):
+            offset = max(0, offset - (1 if key == curses.KEY_UP else height))
 
 
 DEFAULT_MODEL = ("openai-codex", "gpt-6-astra")
@@ -384,12 +391,14 @@ def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL, coordinator
         raise core.LaunchError('Invoking Herdr instance changed; reopen the form')
     if coordinator:
         if coordinator.get('unregistered'):
-            raise core.LaunchError('Invoking Pi is unregistered. Use /reload in that session and reopen, or explicitly choose New session with Ctrl-O.')
+            raise core.LaunchError('Invoking Pi is not enrolled. Use /feature-coordinate there and reopen (load/reload the extension first if missing), or explicitly choose New session with Ctrl-O.')
         current = core.coordinator_identity(coordinator['epoch'], admitted['common'])
         if any(current.get(key) != coordinator.get(key) for key in ('instance', 'session', 'session_file', 'epoch', 'common', 'pane', 'tab', 'workspace')):
             raise core.LaunchError('Selected coordinator changed; explicitly reselect')
     # A fresh read-only check on Ctrl-S and again inside feature-start.
     fresh = core.preflight(admitted["repo"], admitted["base"])
+    if fresh.get('head') != admitted.get('head'):
+        raise core.LaunchError('Integration-base checkpoint changed while the form was open; inspect and reopen before launch')
     if fresh["repo"] != admitted["repo"] or fresh["common"] != admitted["common"]:
         raise core.LaunchError("Repository identity changed while the form was open")
     root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "feature-workflow"
@@ -424,7 +433,7 @@ def form(window, pane, admitted, style=None):
     name, brief = Editor(), Editor(multiline=True)
     model = DEFAULT_MODEL
     coordinator = admitted.get('default_coordinator')  # Captured once before the form, never recomputed from focus.
-    notice = 'Invoking Pi is unregistered. Use /reload there and reopen, or Ctrl-O to explicitly choose New session/another coordinator.'
+    notice = 'Invoking Pi is not enrolled. Use /feature-coordinate there and reopen (load/reload if missing), or Ctrl-O to explicitly choose New session/another coordinator.'
     field, error, blocked, running = 0, notice if coordinator and coordinator.get('unregistered') else "", False, False
     results = queue.Queue()
 
@@ -442,14 +451,14 @@ def form(window, pane, admitted, style=None):
         else:
             put(window, 1, 2, "New feature", style.accent | curses.A_BOLD)
             put(window, 2, 2, 'Coord ^O', style.muted)
-            label = ('Unregistered invoking Pi · /reload required' if coordinator and coordinator.get('unregistered') else
+            label = ('Unenrolled invoking Pi · /feature-coordinate' if coordinator and coordinator.get('unregistered') else
                      f"Existing: {clip(coordinator.get('name') or coordinator['session'][:8], 24)} ({coordinator['tab']}, {coordinator['session'][:8]})" if coordinator else
                      'New session · openai-codex/gpt-6-astra')
             put(window, 2, 14, label)
             put(window, 3, 2, "Repository", style.muted)
             put(window, 3, 14, admitted["repo"])
             put(window, 4, 2, "Base", style.muted)
-            put(window, 4, 14, admitted['base'])
+            put(window, 4, 14, f"{admitted['base']} @ {admitted.get('head', 'unknown')} · remote unverified")
             put(window, 5, 2, "Model ^P", style.muted)
             put(window, 5, 14, '/'.join(model))
             put(window, 6, 2, "Name", style.accent | curses.A_BOLD if field == 0 else style.muted)
@@ -533,6 +542,10 @@ def ui(window, admitted, pane, error):
         if error:
             error_popup(window, error, style)
         else:
+            validation = admitted.get('validation') or {}
+            if validation.get('status') == 'unrelated-stack-warning':
+                if not error_popup(window, validation['message'], style):
+                    return
             form(window, pane, admitted, style)
     finally:
         sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()

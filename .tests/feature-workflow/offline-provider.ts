@@ -29,7 +29,8 @@ export default function (pi: ExtensionAPI) {
         if (existsSync(path + '.claim')) continue;
         const request = JSON.parse(readFileSync(path, 'utf8'));
         writeFileSync(path + '.claim', 'claimed', { flag: 'wx', mode: 0o600 });
-        if (request.action === 'followup') pi.sendUserMessage('/feature-followup ' + JSON.stringify(request.input), { expandPromptTemplates: true });
+        if (request.action === 'activate') pi.sendUserMessage('/feature-coordinate', { expandPromptTemplates: true });
+        else if (request.action === 'followup') pi.sendUserMessage('/feature-followup ' + JSON.stringify(request.input), { expandPromptTemplates: true });
         else if (request.action === 'tool-run' && /^[a-z0-9-]+$/.test(request.id)) {
           scenario = { id: request.id, messageId: request.messageId, step: 0, directory };
           pi.sendUserMessage('Offline fixture: deterministic bounded tool sequence, no live actions.');

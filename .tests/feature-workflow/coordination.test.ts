@@ -11,16 +11,16 @@ async function fixture(run: (f: any) => Promise<void>) {
   const socket = Bun.listen({ unix: join(directory, 'herdr.sock'), socket: { data() {} } });
   process.env.HERDR_SOCKET_PATH = join(directory, 'herdr.sock');
   Object.assign(process.env, { XDG_STATE_HOME: directory, HERDR_ENV: "1", HERDR_PANE_ID: "w:p1", HERDR_TAB_ID: "w:t1", HERDR_WORKSPACE_ID: "w" });
-  const events: any = {}, messages: any[] = [], statuses: any[] = [];
+  const events: any = {}, messages: any[] = [], statuses: any[] = [], entries: any[] = [];
   let busy = false, occupant = "/session.jsonl", fail = false, tick: any;
   const oldInterval = globalThis.setInterval, oldClear = globalThis.clearInterval;
   globalThis.setInterval = ((fn: any) => { tick = fn; return 1; }) as any;
   globalThis.clearInterval = (() => {}) as any;
   const ctx: any = { cwd: directory, model: { provider: "p", id: "m" }, isIdle: () => !busy, hasPendingMessages: () => false,
-    sessionManager: { getSessionId: () => "session", getSessionFile: () => "/session.jsonl", getSessionName: () => "Coordinator", getEntries: () => [] },
+    sessionManager: { getSessionId: () => "session", getSessionFile: () => "/session.jsonl", getSessionName: () => "Coordinator", getEntries: () => entries },
     ui: { setStatus: (...args: any[]) => statuses.push(args), notify: () => {} } };
-  const pi: any = { registerFlag: () => {}, appendEntry: () => {}, on: (name: string, fn: any) => events[name] = fn, getFlag: () => undefined,
-    exec: async (cmd: string) => cmd === "git" ? { code: 0, stdout: directory } : { code: 0, stdout: JSON.stringify({ result: { agent: { agent: "pi", pane_id: "w:p1", agent_session: { value: occupant } } } }) },
+  const pi: any = { registerCommand: () => {}, registerFlag: () => {}, appendEntry: (customType: string, data: any) => entries.push({ type: "custom", customType, data }), on: (name: string, fn: any) => events[name] = name === 'session_start' ? async (...args: any[]) => { await fn(...args); await get.ready(); } : fn, getFlag: () => "coordinator",
+    exec: async (cmd: string) => cmd === "git" ? { code: 0, stdout: directory } : { code: 0, stdout: JSON.stringify({ result: { agent: { agent: "pi", pane_id: "w:p1", tab_id: "w:t1", workspace_id: "w", foreground_cwd: directory, agent_session: { value: occupant } } } }) },
     sendMessage: (m: any) => { if (fail) throw Error("uncertain"); messages.push(m); } };
   const get = installCoordination(pi);
   const read = (p: string) => JSON.parse(readFileSync(p, "utf8"));
@@ -75,7 +75,7 @@ test("uncertain delivery retains claim, no retry; reload/resume/fork never repla
   for (const reason of ["reload", "resume", "fork"]) await fixture(async ({ enqueue, busy, poll, get, events, ctx, messages }) => {
     const old = get().epoch, request = enqueue(); busy(true); await poll();
     events.session_shutdown(); await events.session_start({ reason }, ctx); busy(false); await poll();
-    expect(get().epoch).not.toBe(old); expect(request.ack().status).toBe("queued"); expect(messages).toHaveLength(0);
+    expect(get()?.epoch).not.toBe(old); expect(request.ack().status).toBe("queued"); expect(messages).toHaveLength(0);
   });
 });
 
@@ -117,7 +117,7 @@ test("worker role is extension-scoped, persisted across resume, and migrates leg
     entries.length = 0;
     const previous = process.argv;
     const request = join(directory, 'legacy-request.json');
-    writeFileSync(request, JSON.stringify({ session: 'session', role: 'worker' }));
+    writeFileSync(request, JSON.stringify({ ...get().enrollment, nonce: 'legacy', role: 'worker' }));
     process.argv = [...previous, '--feature-request', request];
     try {
       await events.session_start({ reason: 'reload' }, ctx);

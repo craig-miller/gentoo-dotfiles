@@ -32,8 +32,9 @@ export default function (pi: ExtensionAPI) {
       }
       if (!brief.trim()) { ctx.ui.notify("A nonempty brief is required", "warning"); return; }
       if (Buffer.byteLength(brief) > 128 * 1024) { ctx.ui.notify("Brief exceeds 128 KiB", "error"); return; }
-      const destination = registration();
-      if (!destination || destination.role !== "coordinator") { ctx.ui.notify("No compatible live coordinator registration; reload this session before launching", "error"); return; }
+      let destination;
+      try { destination = await registration.activate(ctx); }
+      catch (error) { ctx.ui.notify(`Feature activation refused: ${error}`, "error"); return; }
       const directory = join(process.env.XDG_STATE_HOME || join(homedir(), ".local/state"), "feature-workflow", "requests", randomUUID());
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, "brief.md");

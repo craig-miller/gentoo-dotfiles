@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { createSnapshot, digest, validatePaths, verifySnapshot } from "./snapshot.ts";
 import { collectFeedback } from "./runner.mjs";
+import { pinFreshness, checkFreshness } from "./freshness.ts";
 import { atomic, claim, directory, herdrInstance, manifests, optional, privateDir, read, root, sameInstance, sameOwner, status, type Manifest, type Owner } from "./store.ts";
 
-export type Request = { action: "open" | "status" | "feedback" | "verify" | "close"; id?: string; repo?: string; base?: string; paths?: string[]; requestKey?: string };
+export type Request = { action: "open" | "status" | "feedback" | "verify" | "close"; id?: string; repo?: string; base?: string; paths?: string[]; requestKey?: string; featureCheckpoint?: string; syncEvidence?: string };
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 export function ownerFor(ctx: ExtensionContext): Owner {
   if (process.env.HERDR_ENV !== "1" || !ctx.sessionManager.getSessionFile() || !["tui", "rpc"].includes(ctx.mode)) throw Error("Opening reviews requires a persistent Pi conversation inside Herdr (TUI/RPC).");
@@ -47,8 +48,18 @@ export class Reviews {
     if (!manifest) throw Error("Review has no completed snapshot; inspect status.");
     if (request.action === "verify") {
       const verification = verifySnapshot(manifest.snapshot, join(dir, "snapshot")), reviewState = status(request.id).state;
-      const result = { id: request.id, directory: dir, identity: manifest.snapshot.identity, ...verification, reviewState,
-        readyForApprovalRequest: verification.sourceMatches && verification.snapshotIntact && reviewState === "completed" };
+      let freshness: any;
+      if (manifest.freshness) {
+        try {
+          if (!manifest.featureBase) throw Error("Feature review integration-base identity missing");
+          const proof = request.syncEvidence ? pinFreshness(manifest.freshness.checkpoint, request.syncEvidence)! : manifest.freshness;
+          if (proof.checkpointHash !== manifest.freshness.checkpointHash) throw Error("Accepted checkpoint changed after review launch");
+          freshness = { ok: true, proof, report: await checkFreshness(this.pi, manifest.snapshot.source, manifest.featureBase, proof) };
+        }
+        catch (error) { freshness = { ok: false, error: String(error) }; }
+      }
+      const result = { id: request.id, directory: dir, identity: manifest.snapshot.identity, ...verification, reviewState, freshness,
+        readyForApprovalRequest: verification.sourceMatches && verification.snapshotIntact && reviewState === "completed" && (!manifest.freshness || freshness?.ok === true) };
       atomic(join(dir, "verification.json"), result); return result;
     }
     if (request.action === "close") {
@@ -62,7 +73,8 @@ export class Reviews {
   private async open(r: Request, ctx: ExtensionContext, signal?: AbortSignal) {
     if (!r.repo || !r.base || !r.paths || !r.requestKey || !/^[A-Za-z0-9_-]{1,80}$/.test(r.requestKey)) throw Error("open requires repo, base, paths and a stable requestKey (1–80 letters/digits/_/-).");
     const owner = ownerFor(ctx), source = realpathSync(resolve(ctx.cwd, r.repo)), paths = validatePaths(r.paths);
-    const requestHash = digest(JSON.stringify({ source, base: r.base, paths }));
+    const freshness = pinFreshness(r.featureCheckpoint, r.syncEvidence);
+    const requestHash = digest(JSON.stringify({ source, base: r.base, paths, freshness }));
     privateDir(root()); privateDir(join(root(), "keys")); privateDir(join(root(), "locks"));
     const key = join(root(), "keys", digest(JSON.stringify({ owner, requestKey: r.requestKey })) + ".json");
     const previous = optional(key);
@@ -71,6 +83,7 @@ export class Reviews {
       return { ...status(previous.id), duplicate: true };
     }
     if (!await liveOwner(this.pi, owner)) throw Error("Invoking Pi pane/session no longer matches.");
+    await checkFreshness(this.pi, source, r.base, freshness);
     signal?.throwIfAborted();
     const lock = join(root(), "locks", digest(source));
     try { mkdirSync(lock, { mode: 0o700 }); } catch { throw Error(`Another launch owns ${lock}. A crash leaves this lock for explicit recovery; never blindly retry.`); }
@@ -87,12 +100,13 @@ export class Reviews {
       claim(key, { id, requestHash });
       atomic(join(dir, "launch.json"), { state: "preparing", created: new Date().toISOString() });
       const snapshot = createSnapshot(source, r.base, paths, join(dir, "snapshot"), signal);
-      const manifest: Manifest = { version: 1, id, requestHash, requestKey: r.requestKey, created: new Date().toISOString(), owner, snapshot };
+      const manifest: Manifest = { version: 1, id, requestHash, requestKey: r.requestKey, created: new Date().toISOString(), owner, snapshot, freshness, featureBase: freshness ? r.base : undefined };
       writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", { flag: "wx", mode: 0o600 });
       writeFileSync(join(dir, "runner.mjs"), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "runner.mjs")), { flag: "wx", mode: 0o600 });
       const verification = verifySnapshot(snapshot, join(dir, "snapshot"));
       if (!verification.sourceMatches || !verification.snapshotIntact) throw Error("Source/snapshot drifted before launch.");
       if (!await liveOwner(this.pi, owner)) throw Error("Origin changed before launch.");
+      await checkFreshness(this.pi, source, r.base, freshness);
       signal?.throwIfAborted();
       stage = "create";
       atomic(join(dir, "launch.json"), { state: "launch_uncertain", phase: "tab-create", at: Date.now() });

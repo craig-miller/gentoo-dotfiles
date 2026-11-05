@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Read-only, explicit feature-stack gates. Never fetch, repair, restack or approve."""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+class PreflightError(Exception):
+    pass
+
+
+def command(args, cwd):
+    return subprocess.run(args, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+                          env={**{k: v for k, v in os.environ.items() if not k.startswith('GIT_')}, 'GIT_OPTIONAL_LOCKS': '0', 'GIT_NO_REPLACE_OBJECTS': '1'})
+
+
+def git(repo, *args, optional=False):
+    result = command(['git', '-c', 'core.fsmonitor=false', *args], repo)
+    if result.returncode and not optional:
+        raise PreflightError(diagnostic(['git', *args], result))
+    return (result.stdout if '-z' in args else result.stdout.strip()) if not optional else result
+
+
+def diagnostic(args, result):
+    # Keep both streams, putting the actual validation output before notices.
+    text = f"{' '.join(map(str, args))}: exit {result.returncode}\nstdout:\n{result.stdout.strip() or '(empty)'}\nstderr:\n{result.stderr.strip() or '(empty)'}"
+    if args[0] == 'stax':
+        text = re.sub(r'run `(?:st|stax) update` to upgrade[^\n]*', 'package-manager maintenance required', text)
+        text += '\nMaintenance: use the installation package manager (Gentoo: ebuild/Portage), not the Stax self-updater. No upgrade was attempted.'
+    return text
+
+
+def oid(repo, branch):
+    git(repo, 'check-ref-format', '--branch', branch)
+    return git(repo, 'rev-parse', '--verify', f'refs/heads/{branch}^{{commit}}')
+
+
+def ancestor(repo, older, newer):
+    result = git(repo, 'merge-base', '--is-ancestor', older, newer, optional=True)
+    if result.returncode not in (0, 1):
+        raise PreflightError(diagnostic(['git', 'merge-base'], result))
+    return result.returncode == 0
+
+
+def metadata(repo):
+    values = {}
+    for ref in git(repo, 'for-each-ref', '--format=%(refname)', 'refs/branch-metadata/').splitlines():
+        branch = ref.removeprefix('refs/branch-metadata/')
+        object_id = git(repo, 'rev-parse', '--verify', ref)
+        value = json.loads(git(repo, 'cat-file', 'blob', object_id))
+        if not isinstance(value, dict) or not isinstance(value.get('parentBranchName'), str):
+            raise PreflightError(f'Invalid Stax metadata: {ref}')
+        oid(repo, branch); oid(repo, value['parentBranchName'])
+        revision = value.get('parentBranchRevision')
+        if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40,64}', revision) or git(repo, 'cat-file', '-t', revision) != 'commit':
+            raise PreflightError(f'Invalid Stax parent revision: {ref}')
+        values[branch] = {**value, 'metadata_oid': object_id}
+    for branch in values:
+        seen, current = set(), branch
+        while current in values:
+            if current in seen:
+                raise PreflightError(f'Stax parent cycle: {branch}')
+            seen.add(current); current = values[current]['parentBranchName']
+    return values
+
+
+def launch_validation(repo, base):
+    """Only the known, structurally verified unrelated-restack warning is advisory."""
+    result = command(['stax', 'validate'], repo)
+    report = {'exit_code': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr,
+              'status': 'pass', 'message': diagnostic(['stax', 'validate'], result)}
+    if result.returncode == 0:
+        return report
+    text = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout).strip()
+    pattern = (r'Stack validation\s+PASS No orphaned metadata\s+PASS All parents exist\s+'
+               r'PASS No cycles detected\s+PASS All metadata is valid JSON\s+'
+               r'WARN (\d+) branch\(es\) need restack:\n((?:  [^\n]+\n)+)\s*'
+               r'1 issue\(s\) found\. Run `stax fix` to repair\.')
+    match = re.fullmatch(pattern, text)
+    stderr = re.sub(r'\x1b\[[0-9;]*m', '', result.stderr).strip()
+    known_notice = not stderr or re.fullmatch(r'A new version of stax is available: [^\n]+', stderr)
+    if result.returncode == 1 and match and known_notice:
+        try:
+            values = metadata(repo)
+        except (PreflightError, ValueError) as error:
+            raise PreflightError(report['message'] + '\nMetadata verification failed: ' + str(error)) from None
+        warned = [line.strip() for line in match[2].splitlines()]
+        relevant, current = {base}, base
+        while current in values:
+            current = values[current]['parentBranchName']; relevant.add(current)
+        if len(warned) == int(match[1]) and len(set(warned)) == len(warned) and all(b in values for b in warned) and not relevant.intersection(warned):
+            report.update(status='unrelated-stack-warning', branches=warned)
+            report['message'] = 'Unrelated stack restack warning; new launch uses the exact integration-base commit, not those branches.\n' + report['message']
+            return report
+    raise PreflightError(report['message'] + '\nValidation blocks launch; unknown/non-restack failures are never ignored.')
+
+
+def worktree_fingerprint(path):
+    # Include dirty tracked and nonignored untracked content, not just filenames.
+    result = command(['git', '-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], path)
+    if result.returncode:
+        raise PreflightError(diagnostic(['git', 'status'], result))
+    digest = hashlib.sha256(result.stdout.encode())
+    diff = git(path, 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--')
+    digest.update(diff.encode())
+    digest.update(git(path, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--').encode())
+    files = git(path, 'ls-files', '--others', '--exclude-standard', '-z').split('\0')
+    for name in filter(None, files):
+        file = Path(path) / name
+        digest.update(name.encode()); digest.update(str(file.lstat().st_mode).encode())
+        if file.is_symlink():
+            digest.update(os.readlink(file).encode())
+        else:
+            with file.open('rb') as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+    operations = [name for name in ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'index.lock')
+                  if Path(git(path, 'rev-parse', '--path-format=absolute', '--git-path', name)).exists()]
+    return {'dirty': bool(result.stdout), 'digest': digest.hexdigest(), 'operations': operations}
+
+
+def checkpoint(repo, base, branch=None):
+    repo = str(Path(repo).resolve())
+    if git(repo, 'rev-parse', '--show-toplevel') != repo:
+        raise PreflightError('Supply the exact Git worktree root')
+    current = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD')
+    if branch and branch != current:
+        raise PreflightError('Requested branch does not occupy this worktree')
+    branch = branch or current
+    base_head, head = oid(repo, base), oid(repo, branch)
+    values, chain, node = metadata(repo), [], branch
+    while node != base:
+        if node not in values:
+            raise PreflightError(f'Stack does not reach explicit base {base}: missing parent metadata for {node}')
+        chain.append(node); node = values[node]['parentBranchName']
+    if not chain:
+        raise PreflightError('Feature gate requires a feature branch above the explicit base')
+    selected = {chain[-1]}
+    while True:
+        children = {b for b, m in values.items() if m['parentBranchName'] in selected}
+        if children <= selected:
+            break
+        selected |= children
+    stack = []
+    pending = set(selected)
+    while pending:
+        ready = sorted(b for b in pending if values[b]['parentBranchName'] not in pending)
+        if not ready:
+            raise PreflightError('Unresolved stack topology')
+        for b in ready:
+            m = values[b]; tip, parent = oid(repo, b), m['parentBranchName']; parent_head = oid(repo, parent)
+            stack.append({'branch': b, 'head': tip, 'parent': parent, 'parent_head': parent_head,
+                          'parent_revision': m.get('parentBranchRevision'), 'metadata_oid': m['metadata_oid'],
+                          'includes_base': ancestor(repo, base_head, tip), 'includes_parent': ancestor(repo, parent_head, tip)})
+            pending.remove(b)
+    worktrees = []
+    path = None
+    for field in git(repo, 'worktree', 'list', '--porcelain', '-z').split('\0'):
+        if field.startswith('worktree '):
+            path = field[9:]
+        elif field.startswith('branch refs/heads/') and field.removeprefix('branch refs/heads/') in selected:
+            worktrees.append({'path': str(Path(path).resolve()), 'branch': field.removeprefix('branch refs/heads/'), **worktree_fingerprint(path)})
+    upstream = git(repo, 'for-each-ref', '--format=%(upstream)', f'refs/heads/{base}')
+    remote = git(repo, 'config', '--get', f'branch.{base}.remote', optional=True).stdout.strip()
+    url = git(repo, 'remote', 'get-url', remote) if remote and remote != '.' else None
+    merge_ref = git(repo, 'config', '--get', f'branch.{base}.merge', optional=True).stdout.strip()
+    upstream_head, relation = None, 'unconfigured'
+    if upstream:
+        upstream_head = git(repo, 'rev-parse', '--verify', upstream + '^{commit}')
+        relation = 'equal' if upstream_head == base_head else ('ahead-local' if ancestor(repo, upstream_head, base_head) else ('behind' if ancestor(repo, base_head, upstream_head) else 'diverged'))
+    return {'version': 1, 'repo': repo, 'common': git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
+            'branch': branch, 'head': head, 'base': base, 'base_head': base_head, 'stack': stack, 'worktrees': sorted(worktrees, key=lambda x: x['path']),
+            'upstream': {'ref': upstream or None, 'head': upstream_head, 'remote': remote or None, 'url': url, 'merge_ref': merge_ref or None, 'relation': relation}}
+
+
+def evaluate(repo, base='main', branch=None, stage='inspect', sync_evidence=None, accepted=None):
+    before = checkpoint(repo, base, branch)
+    blockers = []
+    stale = [b['branch'] for b in before['stack'] if not b['includes_base'] or not b['includes_parent']]
+    if stale:
+        blockers.append('Stack stale: coordinate bottom-up restack and rerun checks; no mutation authorized here')
+    if any(w['operations'] for w in before['worktrees']):
+        blockers.append('A selected stack worktree has a Git operation/lock in progress')
+    remote_verified = False
+    if sync_evidence:
+        proof = json.loads(Path(sync_evidence).read_text())
+        if not isinstance(proof, dict):
+            raise PreflightError('Synchronization evidence must be a JSON object')
+        upstream = before['upstream']
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(proof['fetched_at'])).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            age = -1
+        remote_verified = (proof.get('outcome') == 'fetch-and-ff-verified' and proof.get('common') == before['common'] and
+                           proof.get('remote') == upstream['remote'] and proof.get('url') == upstream['url'] and proof.get('merge_ref') == upstream['merge_ref'] and proof.get('upstream') == upstream['ref'] and
+                           proof.get('head') == upstream['head'] and 0 <= age <= 900 and bool(proof.get('authorization')) and
+                           upstream['relation'] in ('equal', 'ahead-local') and upstream['remote'] not in (None, '.'))
+        if not remote_verified:
+            blockers.append('Synchronization evidence does not match configured upstream/current checkpoint')
+    if stage != 'inspect' and not remote_verified:
+        blockers.append('Remote freshness unverified: separately authorize fetch and safe integration-branch fast-forward; record exact execution evidence')
+    if before['upstream']['relation'] in ('behind', 'diverged'):
+        blockers.append('Integration branch is ' + before['upstream']['relation'] + ' relative to cached upstream; never reset it')
+    if stage == 'review':
+        if not accepted:
+            blockers.append('Review requires the checkpoint from the coordinated live acceptance/explicit waiver cycle')
+        else:
+            previous = json.loads(Path(accepted).read_text())
+            if not isinstance(previous, dict) or previous.get('version') != 1 or previous.get('stage') != 'live' or previous.get('gate') != 'ready' or previous.get('checkpoint') != before:
+                blockers.append('Checkpoint/base changed since acceptance: rerun automated and affected live checks before review')
+    after = checkpoint(repo, base, branch)
+    if after != before:
+        blockers.append('Identity/refs/content drifted during preflight; inspect and retry read-only')
+    return {'version': 1, 'stage': stage, 'gate': 'blocked' if blockers else ('local-only' if stage == 'inspect' else 'ready'),
+            'checkpoint': before, 'stale_branches': stale, 'blockers': blockers,
+            'dirty_progress': any(w['dirty'] for w in before['worktrees']),
+            'remote_freshness': 'caller-evidence-checked-not-independently-fetched' if remote_verified else 'unverified-no-network',
+            'mutation_authorized': False, 'approval': False,
+            'notice': 'Read-only point-in-time evidence, not acceptance/review approval. Dirty progress blocks restack until an explicitly coordinated clean checkpoint. Phase ancestry/HEAD seals must not be rewritten to accommodate restacking.'}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--repo', required=True); parser.add_argument('--base', default='main'); parser.add_argument('--branch')
+    parser.add_argument('--stage', choices=['inspect', 'live', 'review'], default='inspect')
+    parser.add_argument('--sync-evidence'); parser.add_argument('--accepted-checkpoint')
+    args = parser.parse_args()
+    try:
+        report = evaluate(args.repo, args.base, args.branch, args.stage, args.sync_evidence, args.accepted_checkpoint)
+        print(json.dumps(report, indent=2)); return 1 if report['blockers'] else 0
+    except (OSError, ValueError, PreflightError, subprocess.SubprocessError) as error:
+        print(json.dumps({'gate': 'blocked', 'error': str(error), 'mutation_authorized': False, 'approval': False}, indent=2)); return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

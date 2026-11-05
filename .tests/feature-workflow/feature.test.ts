@@ -107,11 +107,12 @@ test("slash command saves exact brief and routes only orchestration into current
   const previous = { ...process.env };
   const socket = Bun.listen({ unix: join(directory, 'herdr.sock'), socket: { data() {} } });
   process.env.HERDR_SOCKET_PATH = join(directory, 'herdr.sock');
-  process.env.HERDR_ENV = "1"; process.env.XDG_STATE_HOME = directory;
+  Object.assign(process.env, { HERDR_ENV: "1", XDG_STATE_HOME: directory, HERDR_PANE_ID: "w:p1", HERDR_TAB_ID: "w:t1", HERDR_WORKSPACE_ID: "w" });
   let handler: any; const messages: string[] = [];
   const events: any = {};
   feature({ registerTool: () => {}, registerFlag: () => {}, on: (name: string, fn: any) => events[name] = fn, getFlag: () => undefined,
-    exec: async () => ({ code: 0, stdout: directory }),
+    appendEntry: () => {},
+    exec: async (cmd: string) => ({ code: 0, stdout: cmd === "git" ? directory : JSON.stringify({ result: { agent: { agent: "pi", pane_id: "w:p1", tab_id: "w:t1", workspace_id: "w", foreground_cwd: directory, agent_session: { value: "/caller.jsonl" } } } }) }),
     registerCommand: (_name: string, def: any) => handler = def.handler, sendUserMessage: (m: string) => messages.push(m) } as any);
   const brief = 'Investigate foo\n\n  - "reuse"\n';
   const ctx: any = { cwd: directory, isIdle: () => true, hasPendingMessages: () => false, hasUI: false, ui: { notify: () => {} },

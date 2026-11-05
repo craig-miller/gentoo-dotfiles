@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { stateRoot, herdrInstance, sameInstance } from "../feature-workflow/protocol.ts";
 import type { Snapshot } from "./snapshot.ts";
+import type { Freshness } from "./freshness.ts";
 
 export { herdrInstance, sameInstance };
 export type Owner = { session: string; sessionFile: string; pane: string; tab: string; workspace: string; instance: ReturnType<typeof herdrInstance> };
-export type Manifest = { version: 1; id: string; created: string; requestKey: string; requestHash: string; owner: Owner; snapshot: Snapshot };
+export type Manifest = { version: 1; id: string; created: string; requestKey: string; requestHash: string; owner: Owner; snapshot: Snapshot; freshness?: Freshness; featureBase?: string };
 export const root = () => join(stateRoot(), "reviews");
 export function privateDir(path: string) {
   mkdirSync(path, { recursive: true, mode: 0o700 });

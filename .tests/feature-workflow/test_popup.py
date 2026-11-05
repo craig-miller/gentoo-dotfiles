@@ -55,7 +55,11 @@ class PreflightTests(unittest.TestCase):
     def test_initialized_stax_validation_is_read_only(self):
         blob = subprocess.check_output(['git', 'hash-object', '-w', '--stdin'], cwd=self.repo, input='main', text=True).strip()
         self.git('update-ref', 'refs/stax/trunk', blob)
-        core.preflight(self.repo)
+        def validate(args, cwd):
+            self.calls.append(args)
+            return subprocess.CompletedProcess(args, 0, 'Stack validation passed', '')
+        with patch.dict(core.freshness['launch_validation'].__globals__, command=validate):
+            core.preflight(self.repo)
         self.assertIn(['stax', 'validate'], self.calls)
 
     def test_non_repo_bare_and_missing_main_refused(self):
@@ -161,6 +165,18 @@ class PopupTests(unittest.TestCase):
         self.assertEqual(window.drawn, ['Not a Git repository'])
         self.assertEqual(window.reads, 1)
 
+    def test_long_diagnostics_can_be_scrolled_without_hiding_the_tail(self):
+        class Window:
+            def __init__(self): self.drawn = []
+            def getmaxyx(self): return 3, 30
+            def erase(self): pass
+            def refresh(self): pass
+            def addstr(self, y, x, text, attr): self.drawn.append(text)
+        window = Window(); keys = iter([curses.KEY_NPAGE] * 20 + ['\n'])
+        with patch.object(curses, 'curs_set'), patch.dict(popup.error_popup.__globals__, read_key=lambda w: next(keys)):
+            self.assertTrue(popup.error_popup(window, 'stdout warning ' + 'details ' * 40 + 'END-DIAGNOSTIC'))
+        self.assertTrue(any('END-DIAGNOSTIC' in line for line in window.drawn))
+
     def test_bracketed_paste_does_not_submit_or_cancel(self):
         class Window:
             def __init__(self): self.keys = iter('\x1b[200~a\n\x13b\x1b[201~')
@@ -190,6 +206,13 @@ class PopupTests(unittest.TestCase):
         self.assertIn('Plan only', window.drawn)
         self.assertTrue(any('receipt.json' in text for text in window.drawn))
         self.assertTrue(any('inspect receipt before retrying' in text for text in window.drawn))
+
+    def test_base_checkpoint_change_never_launches_from_stale_form(self):
+        admitted = {'repo': '/repo', 'base': 'main', 'common': '/repo/.git', 'head': 'old'}
+        with patch.object(core, 'preflight', return_value={**admitted, 'head': 'new'}), patch.object(subprocess, 'run') as run:
+            with self.assertRaisesRegex(core.LaunchError, 'checkpoint changed'):
+                popup.execute_launch('w1:p1', admitted, 'foo', 'Plan')
+            run.assert_not_called()
 
     def test_revalidation_failure_never_launches(self):
         with patch.object(core, 'preflight', side_effect=core.LaunchError('rebase started')):

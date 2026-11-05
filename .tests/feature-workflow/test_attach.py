@@ -26,6 +26,7 @@ class AttachTests(fixture.CoordinatorTests):
         session_file.write_text(json.dumps({'type': 'session', 'id': 'worker-session'}) + '\n')
         self.worker = {**self.item, 'role': 'worker', 'epoch': self.worker_epoch, 'session': 'worker-session',
                        'session_file': str(session_file), 'pane': 'w:p2', 'tab': 'w:t2', 'cwd': str(self.worker_path)}
+        self.worker['enrollment'] = {k: v for k, v in {**self.worker, 'version': 1}.items() if k != 'enrollment'}
         a.core.write_json(self.registry / (self.worker_epoch + '.json'), self.worker)
         (a.core.state_root() / 'inbox' / self.worker_epoch).mkdir(parents=True)
         self.receipt = self.root / 'legacy-receipt.json'

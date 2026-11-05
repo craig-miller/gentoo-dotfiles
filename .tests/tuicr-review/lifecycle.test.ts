@@ -44,6 +44,45 @@ async function fixture(run: (f: any) => Promise<void>) {
   finally { reporter.stop(); socket.stop(true); replacement?.stop(true); process.env = env; rmSync(root, { recursive: true }); }
 }
 
+test("explicit feature gate blocks before launch and rechecks after snapshot; generic reviews remain independent", async () => {
+  for (const late of [false, true]) await fixture(async f => {
+    const checkpoint = join(f.root, 'accepted.json'), synchronization = join(f.root, 'sync.json');
+    writeFileSync(checkpoint, '{}'); writeFileSync(synchronization, '{}');
+    const exec = f.pi.exec; let checks = 0;
+    f.pi.exec = async (cmd: string, args: string[]) => {
+      if (cmd !== 'feature-preflight') return exec(cmd, args);
+      expect(args).toContain(checkpoint); expect(args).toContain(synchronization); checks++;
+      const blocked = !late || checks > 1;
+      return { code: blocked ? 1 : 0, stdout: blocked ? 'Base advanced; rerun affected live checks' : JSON.stringify({ version: 1, stage: 'review', gate: 'ready', checkpoint: { repo: f.source, base: 'main' }, approval: false }), stderr: '', killed: false, truncated: false };
+    };
+    const request = { action: 'open' as const, repo: f.source, base: 'main', paths: ['a'], requestKey: 'feature', featureCheckpoint: checkpoint, syncEvidence: synchronization };
+    if (late) expect((await f.reviews.act(request, f.ctx)).error).toContain('Base advanced');
+    else await expect(f.reviews.act(request, f.ctx)).rejects.toThrow('Base advanced');
+    expect(f.calls.filter((a: string[]) => a[1] === 'create')).toHaveLength(0);
+  });
+});
+
+test("feature verification checks base freshness and pinned acceptance; fresh explicit sync evidence need not relaunch review", async () => {
+  await fixture(async f => {
+    const checkpoint = join(f.root, 'accepted.json'), synchronization = join(f.root, 'sync.json'), renewed = join(f.root, 'renewed-sync.json');
+    writeFileSync(checkpoint, '{}'); writeFileSync(synchronization, '{}'); writeFileSync(renewed, '{"new":"evidence"}');
+    const exec = f.pi.exec; let stale = false;
+    f.pi.exec = async (cmd: string, args: string[]) => cmd !== 'feature-preflight' ? exec(cmd, args) :
+      { code: stale ? 1 : 0, stdout: stale ? 'stale base' : JSON.stringify({ version: 1, stage: 'review', gate: 'ready', checkpoint: { repo: f.source, base: 'main' }, approval: false }), stderr: '', killed: false, truncated: false };
+    const request = { action: 'open' as const, repo: f.source, base: 'main', paths: ['a'], requestKey: 'feature', featureCheckpoint: checkpoint, syncEvidence: synchronization };
+    const opened = await f.reviews.act(request, f.ctx); f.complete(opened.id);
+    stale = true;
+    const blocked = await f.reviews.act({ action: 'verify', id: opened.id }, f.ctx);
+    expect(blocked.sourceMatches).toBe(true); expect(blocked.readyForApprovalRequest).toBe(false);
+    stale = false;
+    expect((await f.reviews.act({ action: 'verify', id: opened.id, syncEvidence: renewed }, f.ctx)).readyForApprovalRequest).toBe(true);
+    writeFileSync(checkpoint, '{"changed":true}');
+    expect((await f.reviews.act({ action: 'verify', id: opened.id, syncEvidence: renewed }, f.ctx)).readyForApprovalRequest).toBe(false);
+    await expect(f.reviews.act(request, f.ctx)).rejects.toThrow('requestKey');
+    expect(f.calls.filter((a: string[]) => a[1] === 'create')).toHaveLength(1);
+  });
+});
+
 test("open returns immutable identity immediately, duplicate keys do not launch, overlapping reviews blocked", async () => {
   await fixture(async ({ open, calls, reviews, ctx }) => {
     const first = await open(); expect(first.identity).toHaveLength(64); expect(first.fileCount).toBe(1);

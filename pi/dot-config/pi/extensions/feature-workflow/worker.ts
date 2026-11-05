@@ -51,6 +51,9 @@ export default function (pi: ExtensionAPI) {
     let request: any;
     try {
       request = JSON.parse(readFileSync(requestPath, "utf8"));
+      const roleIndex = process.argv.indexOf("--feature-role");
+      const roleFlag = roleIndex >= 0 ? process.argv[roleIndex + 1] : process.argv.find(a => a.startsWith("--feature-role="))?.slice("--feature-role=".length);
+      if (!["worker", "coordinator"].includes(request.role || "worker") || (roleFlag !== undefined && roleFlag !== (request.role || "worker"))) throw new Error("Launcher request/role conflict");
       if (existsSync(join(directory, "claimed.json"))) throw new Error("Handoff already claimed; no automatic replay");
       const git = async (...args: string[]) => {
         const result = await pi.exec("git", args, { cwd: ctx.cwd, timeout: 5000 });

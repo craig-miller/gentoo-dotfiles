@@ -24,12 +24,14 @@ export default function (pi: ExtensionAPI) {
     description: "Open an explicitly scoped frozen Git worktree-vs-base review in a separate Herdr tab; retrieve status/feedback, verify source drift, or request owned-runner close by durable ID. Requires tuicr, Herdr and Node. Completion reports automatically start a Pi turn; review is never approval. Output limited to 16k characters/500 lines; full receipts retained privately.",
     promptSnippet: "Open frozen scoped reviews; retrieve feedback and verify reviewed source",
     promptGuidelines: ["Use feature_review instead of writing ad hoc review launchers. For open specify an exact Git root, explicit base, exact changed file paths (including selected new files), and a stable requestKey. Reuse that key on uncertain results; never duplicate an uncertain launch.",
+      "For feature live/review work, run feature-preflight first. Pass featureCheckpoint and syncEvidence to feature_review open to pin and enforce that gate; generic document reviews do not require feature enrollment. A ready gate is not live acceptance or review permission.",
       "feature_review status is never human approval. Use feature_review verify immediately before asking for commit approval; source must match and the snapshot must be intact. Do not infer commit, integration, installation, push or cleanup permission."],
     executionMode: "sequential",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("open"), Type.Literal("status"), Type.Literal("feedback"), Type.Literal("verify"), Type.Literal("close")]),
       id: Type.Optional(Type.String()), repo: Type.Optional(Type.String()), base: Type.Optional(Type.String()),
       paths: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 128 })), requestKey: Type.Optional(Type.String()),
+      featureCheckpoint: Type.Optional(Type.String()), syncEvidence: Type.Optional(Type.String()),
     }, { additionalProperties: false }),
     async execute(_id, params, signal, _update, ctx) {
       const result = await reviews.act(params, ctx, signal);

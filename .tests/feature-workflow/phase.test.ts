@@ -35,7 +35,7 @@ export async function fixture(run: (f: any) => Promise<void>) {
   const receipt = join(dir, "receipt.json"); atomicJSON(receipt, { nonce: randomUUID(), branch: "feature/first", head, base: "main", cwd, repo, session: worker.session, worker, brief: "Original\r\n  user brief" });
   const original = readFileSync(receipt);
   const revision = randomUUID(), relationship = join(reportingDirectory(worker.session), "revisions", revision, "request.json"); mkdirSync(dirname(relationship), { recursive: true });
-  const request = { revision, feature: readJSON(receipt).nonce, receipt, receipt_sha256: digest(original), common, cwd, branch: "feature/first", worker: { ...worker }, coordinator: { ...coordinator } };
+  const request = { version: 1, revision, feature: readJSON(receipt).nonce, receipt, receipt_sha256: digest(original), common, cwd, branch: "feature/first", worker: { ...worker }, coordinator: { ...coordinator } };
   atomicJSON(relationship, request); atomicJSON(join(reportingDirectory(worker.session), "current.json"), { revision, feature: request.feature, request: relationship });
   for (const role of ["worker", "coordinator"] as const) {
     atomicJSON(join(dirname(relationship), `active-${role}.json`), { revision, feature: request.feature, role, epoch: request[role].epoch, worker_epoch: worker.epoch, coordinator_epoch: coordinator.epoch, status: "active" });

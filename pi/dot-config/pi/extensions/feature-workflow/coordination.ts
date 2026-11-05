@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { atomicJSON, stateRoot, readJSON, matchesDestination, herdrInstance, sameInstance } from "./protocol.ts";
@@ -7,6 +7,7 @@ import { atomicJSON, stateRoot, readJSON, matchesDestination, herdrInstance, sam
 import { hasAttachment, pollAttachments, reportAttached, validBoundMessage, validateRequest } from "./attachment.ts";
 import { pollPhases, pollRenewals, phaseReserved, acknowledgePendingPhase } from "./phase.ts";
 import { contextObservation } from "./context-policy.ts";
+import { enrollmentIntent, explicitEnrollment, verifyEnrollment, enrollmentType } from "./enrollment.ts";
 import { pollFollowups, observeFollowup, settleFollowup } from "./followup.ts";
 
 // Same-user private receipt transport. Epochs are runtime lifetimes, never repository ownership.
@@ -55,31 +56,15 @@ export function installCoordination(pi: ExtensionAPI) {
   });
   pi.on("ui_prompt_start", () => { blockedUI = true; });
   pi.on("ui_prompt_end", () => { blockedUI = false; });
-  pi.on("session_start", async (_event, ctx) => {
-    stop();
-    if (process.env.HERDR_ENV !== "1" || !ctx.sessionManager.getSessionFile()) return;
+  const start = async (ctx: ExtensionContext, intent: any, bootstrap = false) => {
     const gen = generation;
-    const git = await pi.exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: ctx.cwd, timeout: 5000 });
-    if (git.code || gen !== generation) return;
-    const previousWorker = ctx.sessionManager.getEntries().some((entry: any) =>
-      entry.type === "custom" && entry.customType === "feature-workflow-role" && entry.data?.role === "worker");
-    const flag = pi.getFlag("feature-role");
-    if (flag !== undefined && flag !== "worker" && flag !== "coordinator") throw new Error("Invalid feature role");
-    // Existing launcher processes may predate feature-role. Read only their exact
-    // startup request, matched to this actual session; never infer from a tab name.
-    const legacyIndex = process.argv.indexOf("--feature-request");
-    let legacyWorker = false;
-    if (legacyIndex >= 0 && process.argv[legacyIndex + 1]) {
-      const request = readJSON(process.argv[legacyIndex + 1]);
-      legacyWorker = request.session === ctx.sessionManager.getSessionId() && (request.role || "worker") === "worker";
-    }
-    const role = previousWorker || legacyWorker || flag === "worker" ? "worker" : "coordinator";
-    if (role === "worker" && !previousWorker) pi.appendEntry("feature-workflow-role", { role });
-    registration = { version: 2, capabilities: ["reporting-attach-v1", "phase-transition-v1", "followup-v1", "worker-messaging-v1"], instance: herdrInstance(), epoch: randomUUID(), session: ctx.sessionManager.getSessionId(),
-      session_file: ctx.sessionManager.getSessionFile(), common: realpathSync(git.stdout.trim()), cwd: realpathSync(ctx.cwd),
-      pane: process.env.HERDR_PANE_ID, tab: process.env.HERDR_TAB_ID, workspace: process.env.HERDR_WORKSPACE_ID,
-      provider: ctx.model?.provider, model: ctx.model?.id, role, live: true };
-    const root = stateRoot(), mine = registration;
+    const enrollment = await verifyEnrollment(pi, ctx, intent, () => gen === generation, bootstrap);
+    if (gen !== generation) throw new Error("Session changed during feature activation");
+    if (!intent.persisted) pi.appendEntry(enrollmentType, enrollment);
+    const mine = { ...enrollment, version: 2, enrollment,
+      capabilities: ["coordination-opt-in-v1", "reporting-attach-v1", "phase-transition-v1", "followup-v1", "worker-messaging-v1"], epoch: randomUUID(),
+      provider: ctx.model?.provider, model: ctx.model?.id, live: true };
+    const root = stateRoot();
     mkdirSync(join(root, "sessions"), { recursive: true, mode: 0o700 });
     const inbox = join(root, "inbox", mine.epoch);
     mkdirSync(inbox, { recursive: true, mode: 0o700 });
@@ -88,6 +73,7 @@ export function installCoordination(pi: ExtensionAPI) {
       name: ctx.sessionManager.getSessionName(), context: contextObservation(ctx), updated: Date.now(), busy: !ctx.isIdle() || ctx.hasPendingMessages() || blockedUI,
     });
     heartbeat();
+    registration = mine;
     const poll = async () => {
       if (polling || generation !== gen) return;
       polling = true;
@@ -151,8 +137,47 @@ export function installCoordination(pi: ExtensionAPI) {
       finally { polling = false; }
     };
     timer = setInterval(() => { void poll(); }, 1000);
+    return registration;
+  };
+  let activation: Promise<any> | undefined;
+  const activate = async (ctx: ExtensionContext, role = "coordinator", receipt?: string) => {
+    const gen = generation, session = ctx.sessionManager.getSessionId(), file = ctx.sessionManager.getSessionFile();
+    if (activation) await activation;
+    if (gen !== generation || session !== ctx.sessionManager.getSessionId() || file !== ctx.sessionManager.getSessionFile()) throw new Error("Session changed during activation wait");
+    if (registration) {
+      if (registration.role !== role || registration.session !== ctx.sessionManager.getSessionId() || registration.session_file !== ctx.sessionManager.getSessionFile()) throw new Error("Cannot reclassify an enrolled feature session");
+      return registration;
+    }
+    const task = start(ctx, explicitEnrollment(ctx, role, receipt)); activation = task;
+    try { return await task; } finally { if (activation === task) activation = undefined; }
+  };
+  pi.registerCommand("feature-coordinate", {
+    description: "Opt this session into coordination; optional: worker /absolute/original-receipt.json. Metadata only, no launch/input/focus.",
+    handler: async (args, ctx) => {
+      try {
+        const text = args.trim();
+        if (text && !text.startsWith("worker ")) throw new Error("Use /feature-coordinate or /feature-coordinate worker /absolute/receipt.json");
+        const mine = await activate(ctx, text ? "worker" : "coordinator", text ? text.slice(7).trim() : undefined);
+        ctx.ui.notify(`Feature ${mine.role} enrolled. Epoch: ${mine.epoch}. Attachment/renewal remains explicit; no work launched.`, "info");
+      } catch (error) { ctx.ui.notify(String(error), "error"); }
+    },
   });
-  return () => registration;
+  pi.on("session_start", (event, ctx) => {
+    stop(); blockedUI = false;
+    if (process.env.HERDR_ENV !== "1" || !ctx.sessionManager.getSessionFile()) return;
+    try {
+      const intent = enrollmentIntent(pi, ctx, event.reason);
+      if (!intent) return; // Ordinary Git/Herdr sessions have no registration or timer.
+      const gen = generation;
+      // Do not block later session_start hooks (including Herdr's publisher).
+      const task = start(ctx, intent, true).catch(error => {
+        if (gen === generation) ctx.ui.notify(`Feature enrollment refused: ${error}`, "error");
+      });
+      activation = task;
+      void task.finally(() => { if (activation === task) activation = undefined; });
+    } catch (error) { ctx.ui.notify(`Feature enrollment refused: ${error}`, "error"); }
+  });
+  return Object.assign(() => registration, { activate, ready: () => activation });
 }
 
 export async function reportWorker(pi: ExtensionAPI, ctx: ExtensionContext, request: any, content: string) {
