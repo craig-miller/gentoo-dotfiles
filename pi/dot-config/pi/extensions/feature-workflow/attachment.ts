@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { atomicJSON, herdrInstance, matchesDestination, readJSON, sameInstance, stateRoot } from "./protocol.ts";
+import { phaseBranch, reportingPhaseReady } from "./phase-record.ts";
 
 export const reportingDirectory = (session: string) => join(stateRoot(), "reporting", createHash("sha256").update(session).digest("hex"));
 export const hasAttachment = (session: string) => existsSync(join(reportingDirectory(session), "current.json"));
@@ -35,16 +36,17 @@ export function readyAttachment(path: string) {
   return request;
 }
 
-async function verifyEndpoint(pi: ExtensionAPI, expected: any) {
+export async function verifyEndpoint(pi: ExtensionAPI, expected: any) {
   liveRegistration(expected);
   const result = await pi.exec("herdr", ["agent", "get", expected.pane], { timeout: 5000 });
   const agent = result.code === 0 ? JSON.parse(result.stdout).result?.agent : undefined;
   if (agent?.agent !== "pi" || agent?.pane_id !== expected.pane || agent?.tab_id !== expected.tab || agent?.workspace_id !== expected.workspace || agent?.agent_session?.value !== expected.session_file ||
       realpathSync(agent?.foreground_cwd || "/") !== expected.cwd) throw new Error("Endpoint closed/replaced/moved");
   liveRegistration(expected);
+  return agent;
 }
 
-async function validateRequest(pi: ExtensionAPI, ctx: ExtensionContext, mine: any, request: any, role: string) {
+export async function validateRequest(pi: ExtensionAPI, ctx: ExtensionContext, mine: any, request: any, role: string) {
   currentAttachment(request);
   if (!matchesDestination({ target: request[role] }, mine) || mine.role !== role || ctx.sessionManager.getSessionId() !== mine.session ||
       ctx.sessionManager.getSessionFile() !== mine.session_file || realpathSync(ctx.cwd) !== mine.cwd) throw new Error("Attachment endpoint identity mismatch");
@@ -54,7 +56,7 @@ async function validateRequest(pi: ExtensionAPI, ctx: ExtensionContext, mine: an
   const bytes = readFileSync(request.receipt);
   if (createHash("sha256").update(bytes).digest("hex") !== request.receipt_sha256) throw new Error("Original receipt changed");
   const receipt = JSON.parse(bytes.toString());
-  if (receipt.nonce !== request.feature || receipt.session !== request.worker.session || receipt.branch !== request.branch ||
+  if (receipt.nonce !== request.feature || receipt.session !== request.worker.session || phaseBranch(request, receipt) !== request.branch ||
       realpathSync(receipt.cwd) !== request.cwd || request.worker.cwd !== request.cwd ||
       (receipt.worker?.session_file && receipt.worker.session_file !== request.worker.session_file)) throw new Error("Receipt/worker mismatch");
   for (const endpoint of [request.worker, request.coordinator]) await verifyEndpoint(pi, endpoint);
@@ -122,6 +124,7 @@ export async function pollAttachments(pi: ExtensionAPI, ctx: ExtensionContext, m
 export function validBoundMessage(message: any, mine: any) {
   try {
     const request = readyAttachment(message.relationship);
+    reportingPhaseReady(request);
     return message.kind === "bound-status" && correlated(message, request) &&
       matchesDestination({ target: request.coordinator }, mine) && matchesDestination({ target: message.sender }, request.worker);
   } catch { return false; }
@@ -138,6 +141,7 @@ export async function reportAttached(pi: ExtensionAPI, ctx: ExtensionContext, mi
   atomicJSON(join(directory, "last-report.json"), { revision: pointer.revision, epoch: mine.epoch, session: mine.session, content });
   try {
     const request = readyAttachment(pointer.request);
+    reportingPhaseReady(request);
     if (!matchesDestination({ target: request.worker }, mine)) throw new Error("Worker epoch changed; explicit rebind required");
     await validateRequest(pi, ctx, mine, request, "worker");
     if (!stillCurrent()) return;

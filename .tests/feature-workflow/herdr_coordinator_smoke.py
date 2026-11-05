@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='fc-') as directory:
     # Match candidate testing's individual-file links, including the new helper.
     # This setup is private to the fixture; live links are never modified.
     (config / 'extensions/feature-workflow').mkdir()
-    for module in ('index.ts', 'worker.ts', 'coordination.ts', 'protocol.ts', 'attachment.ts'):
+    for module in ('index.ts', 'worker.ts', 'coordination.ts', 'protocol.ts', 'attachment.ts', 'phase.ts', 'phase-record.ts', 'context-policy.ts', 'followup.ts'):
         (config / 'extensions/feature-workflow' / module).symlink_to(ROOT / 'pi/dot-config/pi/extensions/feature-workflow' / module)
     (config / 'extensions/offline.ts').symlink_to(ROOT / '.tests/feature-workflow/offline-provider.ts')
     # Reuse the installed integration read-only; never install/update live agents.
@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='fc-') as directory:
     (config / 'settings.json').write_text(json.dumps({'defaultProvider': 'feature-offline', 'defaultModel': 'coordinator'}))
     herdr_config = tmp / 'herdr.toml'
     popup = ROOT / 'agents/dot-local/bin/feature-popup'
-    herdr_config.write_text('onboarding = false\n[terminal]\ndefault_shell = "/bin/bash"\n'
+    herdr_config.write_text('onboarding = false\n[terminal]\ndefault_shell = "/bin/bash"\n[ui.sound]\nenabled = false\n[ui.toast]\ndelivery = "off"\n'
                             '[[keys.command]]\nkey = "prefix+f"\ntype = "popup"\n'
                             f'command = "exec {popup}"\nwidth = "80%"\nheight = "70%"\n')
     env.update(PI_CODING_AGENT_DIR=str(config), XDG_STATE_HOME=str(tmp / 'state'), XDG_CONFIG_HOME=str(tmp / 'config'),

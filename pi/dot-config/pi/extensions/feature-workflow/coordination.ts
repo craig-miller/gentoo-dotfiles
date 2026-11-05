@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { atomicJSON, stateRoot, readJSON, matchesDestination, herdrInstance, sameInstance } from "./protocol.ts";
 
-import { hasAttachment, pollAttachments, reportAttached, validBoundMessage } from "./attachment.ts";
+import { hasAttachment, pollAttachments, reportAttached, validBoundMessage, validateRequest } from "./attachment.ts";
+import { pollPhases, pollRenewals, phaseReserved, acknowledgePendingPhase } from "./phase.ts";
+import { contextObservation } from "./context-policy.ts";
+import { pollFollowups, observeFollowup, settleFollowup } from "./followup.ts";
 
 // Same-user private receipt transport. Epochs are runtime lifetimes, never repository ownership.
 export function installCoordination(pi: ExtensionAPI) {
@@ -19,9 +22,36 @@ export function installCoordination(pi: ExtensionAPI) {
     registration = undefined;
   };
   pi.on("session_shutdown", stop);
+  const reserved = () => registration?.role === "worker" && phaseReserved(registration.session);
+  pi.on("input", (_event, ctx) => {
+    if (reserved()) { ctx.ui.notify("Phase transition reserved: inspect/recover it through the coordinator before new work", "warning"); return { action: "handled" }; }
+  });
+  pi.on("session_before_switch", () => reserved() ? { cancel: true } : undefined);
+  pi.on("session_before_fork", () => reserved() ? { cancel: true } : undefined);
+  pi.on("session_before_tree", () => reserved() ? { cancel: true } : undefined);
+  pi.on("user_bash", () => { if (reserved()) throw new Error("Phase transition reserved; shell input refused"); });
+  // message_end runs BEFORE persistence in Pi. Acknowledge only from boundaries
+  // that can observe the exact saved custom entry, never from an event alone.
+  pi.on("context", (_event, ctx) => { acknowledgePendingPhase(ctx, registration); observeFollowup(ctx, registration); });
+  pi.on("tool_call", (_event, ctx) => {
+    acknowledgePendingPhase(ctx, registration);
+    observeFollowup(ctx, registration);
+    return reserved() ? { block: true, reason: "Phase transition reserved; no concurrent work", terminate: true } : undefined;
+  });
+  pi.on("turn_end", async (event, ctx) => {
+    const mine = registration, gen = generation;
+    if (mine && event.outcome === "completed") await pollFollowups(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI, "turn_end");
+  });
+  pi.on("agent_before_settle", async (event, ctx) => {
+    const mine = registration, gen = generation;
+    if (mine && event.outcome === "completed") await pollFollowups(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI, "agent_before_settle");
+  });
   pi.on("agent_settled", async (event, ctx) => {
     const mine = registration, gen = generation;
-    if (mine) await reportAttached(pi, ctx, mine, event.aborted, () => generation === gen && registration === mine);
+    acknowledgePendingPhase(ctx, mine);
+    if (mine && !(await settleFollowup(pi, ctx, mine, event.aborted, () => generation === gen && registration === mine))) {
+      await reportAttached(pi, ctx, mine, event.aborted, () => generation === gen && registration === mine);
+    }
   });
   pi.on("ui_prompt_start", () => { blockedUI = true; });
   pi.on("ui_prompt_end", () => { blockedUI = false; });
@@ -45,7 +75,7 @@ export function installCoordination(pi: ExtensionAPI) {
     }
     const role = previousWorker || legacyWorker || flag === "worker" ? "worker" : "coordinator";
     if (role === "worker" && !previousWorker) pi.appendEntry("feature-workflow-role", { role });
-    registration = { version: 2, capabilities: ["reporting-attach-v1"], instance: herdrInstance(), epoch: randomUUID(), session: ctx.sessionManager.getSessionId(),
+    registration = { version: 2, capabilities: ["reporting-attach-v1", "phase-transition-v1", "followup-v1", "worker-messaging-v1"], instance: herdrInstance(), epoch: randomUUID(), session: ctx.sessionManager.getSessionId(),
       session_file: ctx.sessionManager.getSessionFile(), common: realpathSync(git.stdout.trim()), cwd: realpathSync(ctx.cwd),
       pane: process.env.HERDR_PANE_ID, tab: process.env.HERDR_TAB_ID, workspace: process.env.HERDR_WORKSPACE_ID,
       provider: ctx.model?.provider, model: ctx.model?.id, role, live: true };
@@ -55,7 +85,7 @@ export function installCoordination(pi: ExtensionAPI) {
     mkdirSync(inbox, { recursive: true, mode: 0o700 });
     const heartbeat = () => atomicJSON(join(root, "sessions", mine.epoch + ".json"), {
       ...mine, provider: ctx.model?.provider, model: ctx.model?.id,
-      name: ctx.sessionManager.getSessionName(), updated: Date.now(), busy: !ctx.isIdle() || ctx.hasPendingMessages() || blockedUI,
+      name: ctx.sessionManager.getSessionName(), context: contextObservation(ctx), updated: Date.now(), busy: !ctx.isIdle() || ctx.hasPendingMessages() || blockedUI,
     });
     heartbeat();
     const poll = async () => {
@@ -65,7 +95,10 @@ export function installCoordination(pi: ExtensionAPI) {
         if (!sameInstance(mine.instance, herdrInstance())) { stop(); return; }
         heartbeat();
         await pollAttachments(pi, ctx, mine, () => generation === gen && registration === mine);
-        if (generation !== gen) return;
+        await pollPhases(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
+        await pollRenewals(pi, ctx, mine, () => generation === gen && registration === mine);
+        await pollFollowups(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
+        if (generation !== gen || reserved()) return;
         for (const file of readdirSync(inbox).filter(f => f.endsWith(".request.json")).sort()) {
           const base = join(inbox, file.slice(0, -13)), ack = base + ".ack.json", claim = base + ".claim.json";
           if (existsSync(claim)) continue; // Includes uncertain delivery; never replay.
@@ -98,6 +131,12 @@ export function installCoordination(pi: ExtensionAPI) {
             writeFileSync(claim, "rejected", { flag: "wx", mode: 0o600 }); reply("rejected", "Pane occupant changed"); continue;
           }
           if (!ctx.isIdle() || ctx.hasPendingMessages() || blockedUI) { reply("queued"); continue; }
+          if (message.kind === "bound-status" && readJSON(message.relationship).phase) {
+            try { await validateRequest(pi, ctx, mine, readJSON(message.relationship), "coordinator"); }
+            catch (error) { writeFileSync(claim, "rejected", { flag: "wx", mode: 0o600 }); reply("rejected", String(error)); continue; }
+            if (generation !== gen) return;
+            if (!ctx.isIdle() || ctx.hasPendingMessages() || blockedUI) { reply("queued"); continue; }
+          }
           if (!validRelationship()) { reply("rejected", "Reporting binding changed before delivery");
             writeFileSync(claim, "rejected", { flag: "wx", mode: 0o600 }); continue; }
           writeFileSync(claim, JSON.stringify({ id: message.id }), { flag: "wx", mode: 0o600 });

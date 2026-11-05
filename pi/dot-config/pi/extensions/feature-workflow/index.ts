@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { installCoordination } from "./coordination.ts";
+import { installPhaseTool } from "./phase.ts";
+import { installFollowupTool } from "./followup.ts";
 
 export function splitFeatureArgs(args: string): { name: string; brief: string } {
   const match = /^\s*(\S+)(?:[ \t]|\r?\n)?([\s\S]*)$/.exec(args);
@@ -12,6 +14,8 @@ export function splitFeatureArgs(args: string): { name: string; brief: string } 
 
 export default function (pi: ExtensionAPI) {
   const registration = installCoordination(pi);
+  installPhaseTool(pi, registration);
+  installFollowupTool(pi, registration);
   pi.registerCommand("feature", {
     description: "Start an isolated Pi feature worker: /feature <name> <brief> (multiline supported)",
     handler: async (args, ctx) => {

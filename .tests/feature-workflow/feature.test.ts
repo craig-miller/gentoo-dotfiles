@@ -110,7 +110,7 @@ test("slash command saves exact brief and routes only orchestration into current
   process.env.HERDR_ENV = "1"; process.env.XDG_STATE_HOME = directory;
   let handler: any; const messages: string[] = [];
   const events: any = {};
-  feature({ registerFlag: () => {}, on: (name: string, fn: any) => events[name] = fn, getFlag: () => undefined,
+  feature({ registerTool: () => {}, registerFlag: () => {}, on: (name: string, fn: any) => events[name] = fn, getFlag: () => undefined,
     exec: async () => ({ code: 0, stdout: directory }),
     registerCommand: (_name: string, def: any) => handler = def.handler, sendUserMessage: (m: string) => messages.push(m) } as any);
   const brief = 'Investigate foo\n\n  - "reuse"\n';
@@ -129,7 +129,7 @@ test("slash command saves exact brief and routes only orchestration into current
 
 test("slash command cancellation and busy checks never dispatch", async () => {
   let handler: any; const messages: any[] = [];
-  feature({ registerFlag: () => {}, on: () => {}, registerCommand: (_name: string, def: any) => handler = def.handler, sendUserMessage: (m: any) => messages.push(m) } as any);
+  feature({ registerTool: () => {}, registerFlag: () => {}, on: () => {}, registerCommand: (_name: string, def: any) => handler = def.handler, sendUserMessage: (m: any) => messages.push(m) } as any);
   const old = process.env.HERDR_ENV; process.env.HERDR_ENV = "1";
   const ctx: any = { isIdle: () => false, hasUI: true, ui: { notify: () => {}, input: async () => undefined, editor: async () => undefined } };
   try {

@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='feature-popup-native-') as temporary:
     ENV['XDG_STATE_HOME'] = str(tmp / 'state')
     config = tmp / 'herdr.toml'
     popup = ROOT / 'agents/dot-local/bin/feature-popup'
-    config.write_text('onboarding = false\n[terminal]\ndefault_shell = "/bin/bash"\n'
+    config.write_text('onboarding = false\n[terminal]\ndefault_shell = "/bin/bash"\n[ui.sound]\nenabled = false\n[ui.toast]\ndelivery = "off"\n'
                       '[[keys.command]]\nkey = "prefix+f"\ntype = "popup"\n'
                       f'command = "exec {popup}"\nwidth = "70%"\nheight = "60%"\n')
     ENV['HERDR_CONFIG_PATH'] = str(config)
