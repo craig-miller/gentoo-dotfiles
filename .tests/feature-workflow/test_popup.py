@@ -52,6 +52,29 @@ class PreflightTests(unittest.TestCase):
         self.assertNotIn(['stax', 'validate'], self.calls)  # No interactive Stax setup in preflight.
         self.assertEqual(len(self.git('worktree', 'list').splitlines()), 1)
 
+    def test_popup_launch_context_is_generic_in_minimal_repository(self):
+        admitted = core.preflight(self.repo)
+        before = self.git('status', '--porcelain')
+        brief = 'Implement generic support.\n\n  "quotes" $(data)\n'
+        def launch(command, **kwargs):
+            self.assertEqual(Path(command[command.index('--brief-file') + 1]).read_text(), brief)
+            context = Path(command[command.index('--context-file') + 1]).read_text()
+            self.assertNotIn(brief, context)
+            self.assertIn('~/.config/agents/skills/feature-workflow/SKILL.md', context)
+            self.assertIn('must not launch another feature worker', context)
+            self.assertIn('project instructions already supplied by Pi', context)
+            for forbidden in ('AGENTS.md', 'development-workflow.md', 'Zentoo'):
+                self.assertNotIn(forbidden, context)
+            self.assertEqual(command[command.index('--base') + 1], 'main')
+            return subprocess.CompletedProcess(command, 0, '{"ok":true}', '')
+        with patch.dict(os.environ, XDG_STATE_HOME=str(self.root / 'state')), \
+             patch.object(subprocess, 'run', side_effect=launch), \
+             patch.object(core, 'preflight', return_value=admitted):
+            self.assertTrue(popup.execute_launch('w1:p1', admitted, 'generic', brief)['ok'])
+        self.assertFalse((self.repo / 'AGENTS.md').exists())
+        self.assertFalse((self.repo / 'docs').exists())
+        self.assertEqual(self.git('status', '--porcelain'), before)
+
     def test_initialized_stax_validation_is_read_only(self):
         blob = subprocess.check_output(['git', 'hash-object', '-w', '--stdin'], cwd=self.repo, input='main', text=True).strip()
         self.git('update-ref', 'refs/stax/trunk', blob)

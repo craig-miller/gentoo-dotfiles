@@ -12,7 +12,7 @@ feature-start NAME --repo /path/to/repo --base main \
 - `--list-coordinators --repo PATH` lists compatible live registrations read-only; choose an exact session/epoch.
 - New coordinator defaults independently to `openai-codex/gpt-6-astra`; `--coordinator-provider`/`--coordinator-model` override it.
 - `--origin-pane ID` pins a popup's originating pane instead of using caller context.
-- Stax chooses the worktree location. `--require-sibling` additionally requires `../<source-checkout-name>-<NAME>`; use it for repositories with sibling dependencies, including Zentoo.
+- Stax chooses the worktree location. `--require-sibling` additionally requires `../<source-checkout-name>-<NAME>`; use it only when the assignment explicitly requires relative sibling dependencies. It is not a generic repository layout requirement.
 - The launcher does not fetch, stage, stash or copy uncommitted source changes. It refuses existing branches/paths rather than reusing them.
 
 ## Result

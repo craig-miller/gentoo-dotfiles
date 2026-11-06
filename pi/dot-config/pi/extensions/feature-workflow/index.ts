@@ -45,7 +45,7 @@ export default function (pi: ExtensionAPI) {
         `Original brief file (preserve verbatim): ${JSON.stringify(path)}`,
         `Source cwd: ${JSON.stringify(ctx.cwd)}`,
         `Explicit existing coordinator: pass --coordinator ${destination.epoch}. Do not create a second coordinator or infer ownership from focus.`,
-        "Read the skill in ~/.config/agents/skills/feature-workflow/SKILL.md. Inspect repository instructions and base. Supply relevant agreed conversation decisions in a separate context file, not by rewriting the brief. If scope is sufficient, launch through feature-start; otherwise ask only the missing question. Report the launcher receipt and stop; a startup failure is not permission to take over the feature.",
+        "Read the shared skill in ~/.config/agents/skills/feature-workflow/SKILL.md as coordinator. Respect project instructions already supplied by Pi; inspect Git state and the integration base. Supply relevant agreed conversation decisions in a separate context file, not by rewriting the brief. If scope is sufficient, launch through feature-start; otherwise ask only the missing question. Report the launcher receipt and stop; a startup failure is not permission to take over the feature.",
       ].join("\n\n"));
     },
   });

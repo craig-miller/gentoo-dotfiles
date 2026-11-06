@@ -5,11 +5,20 @@ description: "Launch isolated Stax/Herdr/Pi feature work with an explicit coordi
 
 # Isolated feature workflow
 
+## Repository-independent contract and roles
+
+This shared skill, its bundled references and installed tooling define the generic workflow. No repository-local document, project name, source layout or sibling path is required. Pi supplies applicable project instructions automatically; respect those instructions without adding instruction-file discovery, templates or placeholder documents. Project-specific build, architecture and dependency facts stay in project instructions or separate assignment context, not shared requirements.
+
+Read this skill in the role explicitly assigned to you:
+
+- **Coordinator:** prepare context, delegate to an independent worker, verify evidence and manage Craig's permissions. The launch procedures below are coordinator-only. A launcher-delivered assignment already has a worker; do not launch a duplicate.
+- **Worker:** verify your assigned session/worktree/branch/model and integration base, implement/test only the authorized scope there, and report through the existing bridge. Reading this skill does not make you a coordinator or authorize recursive feature launching. Keep build artifacts independently writable in your worktree. Treat source checkouts and shared dependencies as read-only; coordinate any required changes separately. Follow the same phase, freshness, approval and reporting rules below without assuming coordinator-only actions are yours to run.
+
 ## Ownership and scope
 
 The coordinator prepares context, launches, verifies and reports; **never implement/test/build the delegated feature in the coordinator session**, even by changing directory. A separate worktree is not proof of an independent agent. Startup failure does not authorize taking over.
 
-Use only when Craig requests delegation. Require `HERDR_ENV=1`; read the Herdr/Stax skills and repository instructions. Local `main` and `openai-codex/gpt-6-astra` are defaults, not overrides of explicit choices. No inferred commit, merge, push, fetch, cleanup, live app/provider input or configuration permission.
+Use only when Craig requests delegation. Require `HERDR_ENV=1`; read the Herdr/Stax skills and respect project instructions supplied by Pi. Local `main` and `openai-codex/gpt-6-astra` are defaults, not overrides of explicit choices. No inferred commit, merge, push, fetch, cleanup, live app/provider input or configuration permission.
 
 Preserve the **verbatim brief** in a private UTF-8 file. Put agreed decisions, constraints, tests and current workflow overrides in a separate context file. Planning/investigation authorizes that work now, not implementation or acknowledgement-only waiting.
 
@@ -29,7 +38,7 @@ Ordinary Git/Herdr sessions and non-Git sessions do not register or poll a featu
 
 ## Launch
 
-Inspect the source branch, dirty files, instructions and existing worktrees read-only. Choose an existing local integration branch. Never copy/stash/stage dirty source files. Carry important uncommitted workflow rules as separate context and read-only source paths.
+Inspect the source branch, dirty files and existing worktrees read-only; respect project instructions already supplied by Pi. Choose an existing local integration branch. Never copy/stash/stage dirty source files. Carry important uncommitted workflow rules as separate context and read-only source paths.
 
 ```sh
 feature-start NAME --repo /absolute/repo --base main \

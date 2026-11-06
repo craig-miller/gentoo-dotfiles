@@ -21,6 +21,12 @@ test("task prompt separates exact brief and context, with planning ceiling", () 
   expect(text).toContain("--- USER BRIEF (verbatim) ---\n\n" + brief);
   expect(text).toContain("not implementation");
   expect(text).toContain("not additional authorization");
+  expect(text).toContain("~/.config/agents/skills/feature-workflow/SKILL.md");
+  expect(text).toContain("as the assigned worker, not as a coordinator");
+  expect(text).toContain("Do not launch another feature worker");
+  expect(text).toContain("project instructions already supplied by Pi");
+  expect(text).not.toContain("AGENTS.md");
+  expect(text).not.toContain("development-workflow.md");
 });
 
 async function fixture(run: (f: any) => Promise<void>, changes: any = {}) {
@@ -125,6 +131,10 @@ test("slash command saves exact brief and routes only orchestration into current
     const path = JSON.parse(messages[0].match(/Original brief file \(preserve verbatim\): (.+)/)![1]);
     expect(readFileSync(path, "utf8")).toBe(brief);
     expect(messages[0]).toContain("Explicit existing coordinator: pass --coordinator");
+    expect(messages[0]).toContain("~/.config/agents/skills/feature-workflow/SKILL.md as coordinator");
+    expect(messages[0]).toContain("project instructions already supplied by Pi");
+    expect(messages[0]).not.toContain("AGENTS.md");
+    expect(messages[0]).not.toContain("development-workflow.md");
   } finally { events.session_shutdown(); socket.stop(true); process.env = previous; rmSync(directory, { recursive: true }); }
 });
 

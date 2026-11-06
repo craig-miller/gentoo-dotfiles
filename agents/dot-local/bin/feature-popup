@@ -408,10 +408,11 @@ def execute_launch(pane, admitted, name, brief, model=DEFAULT_MODEL, coordinator
         path.write_text(brief)
         context = Path(directory) / "context.md"
         context.write_text(
-            f"This feature was requested directly through Herdr, not an orchestrator conversation.\n"
-            f"Read current source-checkout instructions at {fresh['repo']}/AGENTS.md and, if present, "
-            f"{fresh['repo']}/docs/development-workflow.md read-only. The source may have local instruction updates "
-            "not yet in the new branch; honor current workflow/approval rules without copying or changing those files.\n")
+            "This feature was requested directly through Herdr, not an orchestrator conversation.\n"
+            "Use the shared feature-workflow skill at ~/.config/agents/skills/feature-workflow/SKILL.md "
+            "in your assigned role: the coordinator manages delegation and permissions; the worker implements/tests "
+            "only the authorized scope in its assigned worktree and must not launch another feature worker. "
+            "Respect project instructions already supplied by Pi.\n")
         command = [str(LAUNCHER), name, "--repo", fresh["repo"], "--base", fresh["base"],
                    "--origin-pane", pane, "--brief-file", str(path), "--context-file", str(context),
                    "--coordinator", coordinator['epoch'] if coordinator else 'new',

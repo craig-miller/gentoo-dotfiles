@@ -242,6 +242,8 @@ def enqueue_assignment(state, receipt, launch_error=None):
     message_id = f"{int(time.time() * 1000):013d}-{uuid.uuid4()}"
     base = state_root() / "inbox" / target["epoch"] / message_id
     content = ("You are the explicitly selected feature coordinator, not the implementation worker. "
+               "Read the shared feature-workflow skill at ~/.config/agents/skills/feature-workflow/SKILL.md as coordinator. "
+               "Respect project instructions already supplied by Pi. "
                "Do not implement/build in the source checkout or launch a second worker. The launcher owns startup. "
                "Coordinate the authorized phase and report to Craig. Planning/investigation is not implementation permission. "
                "No inferred commit, merge, push, cleanup, live app/input or configuration permission. Worker status is not Craig's approval.\n\n"
@@ -277,7 +279,7 @@ def start_coordinator(args, state, receipt, save, worker_extension):
           "--provider", request["provider"], "--model", request["model"], "--session-id", request["session"],
           "--name", args.name + " coordinator", "--extension", str(worker_extension.with_name("index.ts")),
           "--feature-role", "coordinator", "--extension", str(worker_extension), "--feature-request", str(directory / "request.json"),
-          "--append-system-prompt", "You are the feature coordinator, never its implementation worker. Do not implement or build in the source checkout. Do not launch another worker for the assignment delivered by the launcher. Preserve explicit phase and approval limits.", timeout=75)
+          "--append-system-prompt", "You are the feature coordinator, never its implementation worker. Read the shared feature-workflow skill at ~/.config/agents/skills/feature-workflow/SKILL.md as coordinator. Respect project instructions already supplied by Pi. Do not implement or build in the source checkout. Do not launch another worker for the assignment delivered by the launcher. Preserve explicit phase and approval limits.", timeout=75)
     observed = wait_json(directory / "ready.json")
     validate_identity(request, observed, herdr("agent", "get", request["agent_name"])["agent"])
     deadline = time.monotonic() + 20
@@ -365,7 +367,9 @@ def launch(args, receipt, save):
         write_json(request, state)
         guard = (f"You are the independent worker for {branch} in {actual}. "
                  f"Only this worktree is writable for feature work. The source checkout {repo} and sibling dependencies are read-only. "
-                 "Do not implement or build in the orchestrator checkout. Before edits, read applicable repository instructions. "
+                 "Read the shared feature-workflow skill at ~/.config/agents/skills/feature-workflow/SKILL.md as the assigned worker, "
+                 "not as a coordinator: do not launch another feature worker. Respect project instructions already supplied by Pi. "
+                 "Do not implement or build in the orchestrator checkout; keep build artifacts independently writable in your worktree. "
                  "Perform only the phase authorized in the supplied brief; absent explicit implementation authorization, investigate reuse, design and plan, then stop for review. "
                  "Commit, merge, push, cleanup, live configuration changes and live app/provider input require separate authorization. "
                  "Do not infer implementation permission from successful startup. Report blockers; do not delegate back silently.")

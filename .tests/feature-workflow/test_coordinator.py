@@ -120,6 +120,8 @@ class CoordinatorTests(unittest.TestCase):
                 request = json.loads(Path(str(path).replace('.ack.json', '.request.json')).read_text())
                 self.assertIn(brief.read_bytes().decode(), request['content'])
                 self.assertIn('not implementation permission', request['content'])
+                self.assert_generic_guidance(request['content'])
+                self.assertIn('as coordinator', request['content'])
                 return dict(id=request['id'], feature=request['feature'], epoch=self.epoch, status=acknowledgement)
             if path.name == 'delivery.json':
                 return {'nonce': latest['nonce'], 'status': 'submitted'}
@@ -143,8 +145,24 @@ class CoordinatorTests(unittest.TestCase):
             self.assertEqual(result['coordinator_startup']['cwd'], str(self.repo))
             self.assertNotEqual(result['coordinator']['session'], result['session'])
         self.assertEqual(result['brief'], brief.read_bytes().decode())
+        for call in starts:
+            guard = call[call.index('--append-system-prompt') + 1]
+            self.assert_generic_guidance(guard)
+        for repo in (self.repo, self.root / 'worker'):
+            self.assertFalse((repo / 'AGENTS.md').exists())
+            self.assertFalse((repo / 'docs/development-workflow.md').exists())
+        worker_guard = starts[-1][starts[-1].index('--append-system-prompt') + 1]
+        self.assertIn('do not launch another feature worker', worker_guard)
+        self.assertIn('Only this worktree is writable', worker_guard)
         self.assertEqual([c for c in calls if c[:2] == ('tab', 'focus')], [('tab', 'focus', result['coordinator']['tab'])])
         self.assertEqual(len([c for c in calls if c[:2] == ('tab', 'create')]), len(starts))
+
+    def assert_generic_guidance(self, text):
+        self.assertIn('~/.config/agents/skills/feature-workflow/SKILL.md', text)
+        self.assertIn('project instructions already supplied by Pi', text)
+        self.assertNotIn('AGENTS.md', text)
+        self.assertNotIn('development-workflow.md', text)
+        self.assertNotIn('Zentoo', text)
 
     def test_existing_busy_coordinator_acknowledges_queue_without_second_coordinator(self):
         self.launch_fixture(self.epoch)

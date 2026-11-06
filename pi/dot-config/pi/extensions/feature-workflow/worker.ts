@@ -11,7 +11,8 @@ export function taskPrompt(request: any): string {
   return [
     "You are the verified independent feature worker. Execute only the authorized scope below.",
     `Worktree: ${request.cwd}\nBranch: ${request.branch}\nIntegration base: ${request.base}`,
-    "First use your own bash tool to check cwd, branch, PI_SESSION_ID, PI_PROVIDER and PI_MODEL against this assignment. Read applicable repository instructions before changes. Stop on a mismatch.",
+    "Read the shared feature-workflow skill at ~/.config/agents/skills/feature-workflow/SKILL.md as the assigned worker, not as a coordinator. Do not launch another feature worker. Respect project instructions already supplied by Pi.",
+    "First use your own bash tool to check cwd, branch, PI_SESSION_ID, PI_PROVIDER and PI_MODEL against this assignment. Stop on a mismatch. Keep build artifacts independently writable in your worktree; coordinate shared dependencies rather than changing them implicitly.",
     `Expected PI_SESSION_ID: ${request.session}\nExpected PI_PROVIDER: ${request.provider}\nExpected PI_MODEL: ${request.model}`,
     "Planning/investigation requests authorize that work now, not implementation. If implementation is not explicitly authorized, investigate existing reusable code, propose architecture and a plan, then stop for review. Do not merely acknowledge a planning request and wait.",
     "No implicit commit, merge, push, cleanup, live app input or configuration changes. This is a fresh session; no previous conversation was resumed.",
