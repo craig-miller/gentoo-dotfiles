@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""Private Git executor for feature_phase restack operations; never fetch or approve."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import runpy
+import subprocess
+import sys
+
+F = runpy.run_path(str(Path(__file__).resolve().with_name('feature-preflight')))
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def seal(path, value):
+    data = (json.dumps(value, sort_keys=True, indent=2) + '\n').encode()
+    if path.exists():
+        if path.read_bytes() != data:
+            raise ValueError('Immutable evidence differs: ' + str(path))
+    else:
+        with path.open('xb') as stream:
+            os.chmod(path, 0o600)
+            stream.write(data); stream.flush(); os.fsync(stream.fileno())
+    return value
+
+
+def load(path):
+    return json.loads(path.read_bytes())
+
+
+def git(repo, *args, env=None, data=None, ok=(0,)):
+    result = subprocess.run(['git', '-c', 'core.fsmonitor=false', *args], cwd=repo, input=data,
+                            capture_output=True, env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', **(env or {})})
+    if result.returncode not in ok:
+        raise ValueError(f'git {args}: exit {result.returncode}: {result.stderr.decode(errors="replace")}')
+    return result.stdout
+
+
+def text(repo, *args, **kw):
+    return git(repo, *args, **kw).decode().strip()
+
+
+def inspect(repo, base):
+    for marker in ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'index.lock'):
+        if Path(text(repo, 'rev-parse', '--path-format=absolute', '--git-path', marker)).exists():
+            raise ValueError('Git operation in progress: ' + marker)
+    cp = F['checkpoint'](repo, base)
+    if any(w['operations'] for w in cp['worktrees']):
+        raise ValueError('Git operation in progress')
+    # First version is deliberately linear, in one feature worktree.
+    branches = [b['branch'] for b in cp['stack']]
+    if not branches or branches[-1] != cp['branch'] or any(b['parent'] != (base if i == 0 else branches[i-1]) for i, b in enumerate(cp['stack'])):
+        raise ValueError('Only a complete linear feature stack with current branch at its tip is supported')
+    if any(w['path'] != repo for w in cp['worktrees']):
+        raise ValueError('Feature branches checked out in other worktrees are unsupported')
+    if text(repo, 'config', '--bool', '--get', 'core.filemode', ok=(0, 1)) == 'false':
+        raise ValueError('core.filemode=false is unsupported for exact candidate preservation')
+    if text(repo, 'ls-files', '--stage').find('160000 ') >= 0:
+        raise ValueError('Submodules are unsupported')
+    if text(repo, 'ls-files', '-v').splitlines() and any(line[0] != 'H' for line in text(repo, 'ls-files', '-v').splitlines()):
+        raise ValueError('Sparse/skip-worktree/assume-unchanged index unsupported')
+    debug = text(repo, 'ls-files', '--debug')
+    if any(line.rsplit('flags: ', 1)[-1].strip() != '0' for line in debug.splitlines() if 'flags: ' in line):
+        raise ValueError('Extended index flags, including intent-to-add, are unsupported')
+    if text(repo, 'config', '--get', 'core.sparseCheckout', ok=(0, 1)) == 'true':
+        raise ValueError('Sparse checkout unsupported')
+    hooks = text(repo, 'rev-parse', '--git-path', 'hooks')
+    configured = text(repo, 'config', '--get', 'core.hooksPath', ok=(0, 1))
+    hookdir = Path(configured or hooks)
+    if not hookdir.is_absolute(): hookdir = Path(repo) / hookdir
+    if hookdir.exists() and any(p.is_file() and os.access(p, os.X_OK) and not p.name.endswith('.sample') for p in hookdir.iterdir()):
+        raise ValueError('Executable Git hooks require a separately designed hook-chain adapter; refusing to suppress them')
+    # Reject merges/reordered ancestry, and preserve an exact commit inventory.
+    commits = []
+    previous = None
+    for b in cp['stack']:
+        start = b['parent_revision']
+        if not F['ancestor'](repo, start, b['head']): raise ValueError('Stored parent revision is not an ancestor')
+        if previous is not None and start != previous: raise ValueError('Stack already has inconsistent intermediate parent revisions')
+        if text(repo, 'rev-list', '--merges', start + '..' + b['head']): raise ValueError('Merge commits unsupported')
+        commits.extend(text(repo, 'rev-list', '--reverse', start + '..' + b['head']).splitlines())
+        previous = b['head']
+    # A newly tracked base path must never overwrite ignored/untracked data,
+    # nor traverse a symlinked ancestor. Check again immediately before Stax.
+    tracked = set(filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', cp['head']).split(b'\0')))
+    for raw in filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', cp['base_head']).split(b'\0')):
+        if raw in tracked: continue
+        path = Path(repo) / os.fsdecode(raw)
+        if path.exists() or path.is_symlink(): raise ValueError('New integration-base path collides with local data: ' + os.fsdecode(raw))
+        for parent in path.parents:
+            if parent == Path(repo): break
+            if parent.is_symlink() or (parent.exists() and not parent.is_dir()): raise ValueError('New base path has unsafe local ancestor')
+    # lstat every candidate entry; do not follow links or capture ignored files.
+    names = git(repo, 'ls-files', '-z', '--cached', '--others', '--exclude-standard').split(b'\0')
+    for raw in filter(None, names):
+        path = Path(repo) / os.fsdecode(raw)
+        for parent in path.parents:
+            if parent == Path(repo): break
+            if parent.is_symlink(): raise ValueError('Candidate path has a symlink ancestor')
+        if path.exists() and not path.is_file() and not path.is_symlink(): raise ValueError('Nonregular candidate entry')
+    return {'checkpoint': cp, 'candidate': F['worktree_fingerprint'](repo), 'commits': list(dict.fromkeys(commits))}
+
+
+def verify_identity(r):
+    repo = r['cwd']
+    if str(Path(repo).resolve()) != repo or text(repo, 'rev-parse', '--show-toplevel') != repo or text(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir') != r['common']:
+        raise ValueError('Repository/worktree identity changed')
+    if text(repo, 'rev-parse', 'refs/heads/' + r['base']) != r['snapshot']['checkpoint']['base_head']:
+        raise ValueError('Integration base drift; synchronization is separately authorized')
+    return repo
+
+
+def patch(repo, old, new):
+    return git(repo, 'diff', '--binary', '--full-index', '--no-ext-diff', '--no-textconv', old, new, '--')
+
+
+def prepare(d, r):
+    repo = verify_identity(r)
+    if (d / 'preserved.json').exists():
+        verify_bundle(d); return load(d / 'preserved.json')
+    if inspect(repo, r['base']) != r['snapshot']: raise ValueError('Source drift since admission')
+    # Private temporary index; no feature commit and no stash ref is created.
+    index = d / 'capture.index'
+    env = {'GIT_INDEX_FILE': str(index)}
+    index_tree = text(repo, 'write-tree')
+    git(repo, 'read-tree', index_tree, env=env)
+    git(repo, 'add', '-u', '--', env=env)
+    work_tree = text(repo, 'write-tree', env=env)
+    untracked = []
+    for raw in filter(None, git(repo, 'ls-files', '--others', '--exclude-standard', '-z').split(b'\0')):
+        name = os.fsdecode(raw); path = Path(repo) / name
+        if path.is_symlink(): data, mode = os.fsencode(os.readlink(path)), '120000'
+        elif path.is_file(): data, mode = path.read_bytes(), ('100755' if path.stat().st_mode & 0o111 else '100644')
+        else: raise ValueError('Nonregular untracked entry')
+        blob = text(repo, 'hash-object', '-w', '--stdin', data=data)
+        untracked.append({'name': name, 'blob': blob, 'sha256': digest(data), 'mode': mode})
+    bundle = {'head': r['snapshot']['checkpoint']['head'], 'index_tree': index_tree, 'work_tree': work_tree, 'untracked': untracked}
+    # Archive all required Git objects durably outside repository GC reach.
+    objects = [bundle['head'], index_tree, work_tree] + [u['blob'] for u in untracked] + r['snapshot']['commits']
+    objects += [r['snapshot']['checkpoint']['base_head']]
+    objects += [b[k] for b in r['snapshot']['checkpoint']['stack'] for k in ('head', 'parent_revision', 'metadata_oid')]
+    packed = git(repo, 'pack-objects', '--stdout', '--revs', data=('\n'.join(objects) + '\n').encode())
+    with (d / 'objects.pack').open('wb') as stream:
+        os.chmod(d / 'objects.pack', 0o600); stream.write(packed); stream.flush(); os.fsync(stream.fileno())
+    bundle['pack_sha256'] = digest(packed)
+    if inspect(repo, r['base']) != r['snapshot']: raise ValueError('Candidate changed during preservation')
+    seal(d / 'preserved.json', bundle)
+    seal(d / 'preserved-seal.json', {'sha256': digest((d / 'preserved.json').read_bytes())})
+    return bundle
+
+
+def verify_bundle(d):
+    b = load(d / 'preserved.json')
+    if load(d / 'preserved-seal.json')['sha256'] != digest((d / 'preserved.json').read_bytes()) or digest((d / 'objects.pack').read_bytes()) != b['pack_sha256']:
+        raise ValueError('Preservation bundle changed')
+    return b
+
+
+def safe_checkout(repo, tree, removable=()):
+    owned = set(filter(None, git(repo, 'ls-files', '--cached', '-z').split(b'\0'))) | {os.fsencode(n) for n in removable}
+    for raw in filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', tree).split(b'\0')):
+        path = Path(repo) / os.fsdecode(raw)
+        if path.is_dir() and not path.is_symlink(): raise ValueError('Checkout would replace a directory; preserve ignored data and stop')
+        if (path.exists() or path.is_symlink()) and raw not in owned: raise ValueError('Checkout would overwrite unowned/ignored data')
+        for parent in path.parents:
+            if parent == Path(repo): break
+            if parent.is_symlink() or (parent.exists() and not parent.is_dir()): raise ValueError('Unsafe checkout ancestor')
+
+
+def clean(d, r):
+    repo = verify_identity(r); b = verify_bundle(d)
+    if (d / 'cleaned.json').exists(): return load(d / 'cleaned.json')
+    if (d / 'clean-claim.json').exists():
+        raise ValueError('Cleaning was interrupted: inspect retained bundle; never automatically repeat deletion')
+    if inspect(repo, r['base']) != r['snapshot']: raise ValueError('Candidate drift before cleaning')
+    safe_checkout(repo, 'HEAD', [u['name'] for u in b['untracked']])
+    seal(d / 'clean-claim.json', {'candidate': r['snapshot']['candidate']})
+    for u in b['untracked']:
+        path = Path(repo) / u['name']
+        data = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        if digest(data) != u['sha256']: raise ValueError('Untracked candidate drift before removal')
+        path.unlink()  # Only exact manifested files; never git clean or directory removal.
+    git(repo, 'read-tree', '--reset', '-u', 'HEAD')
+    if text(repo, 'status', '--porcelain=v1', '--untracked-files=all'): raise ValueError('Clean boundary not achieved')
+    return seal(d / 'cleaned.json', {'head': text(repo, 'rev-parse', 'HEAD')})
+
+
+def execution_env(d):
+    hooks = d / 'hooks'; hooks.mkdir(exist_ok=True, mode=0o700)
+    hook = hooks / 'post-rewrite'
+    hook.write_text('#!/usr/bin/env python3\nimport json, os, sys\nfrom pathlib import Path\np=Path(os.environ["FEATURE_RESTACK_JOURNAL"])\nwith p.open("ab", buffering=0) as f:\n f.write((json.dumps({"kind":sys.argv[1],"pairs":sys.stdin.read().splitlines()})+"\\n").encode()); os.fsync(f.fileno())\n')
+    hook.chmod(0o700)
+    count = int(os.environ.get('GIT_CONFIG_COUNT', '0'))
+    return {**os.environ, 'GIT_CONFIG_COUNT': str(count + 1), f'GIT_CONFIG_KEY_{count}': 'core.hooksPath',
+            f'GIT_CONFIG_VALUE_{count}': str(hooks), 'FEATURE_RESTACK_JOURNAL': str(d / 'rewrite.jsonl'),
+            'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_EDITOR': 'true', 'GIT_SEQUENCE_EDITOR': 'true'}
+
+
+def execute(d, r, continuation=None):
+    repo = verify_identity(r); verify_bundle(d)
+    if not (d / 'cleaned.json').exists(): raise ValueError('Verified preservation and cleaning required')
+    if continuation:
+        # Only a paused rebase owned by this exact execution may be continued.
+        if not (d / 'execute-claim.json').exists(): raise ValueError('No owned restack execution')
+        rebase = Path(text(repo, 'rev-parse', '--path-format=absolute', '--git-path', 'rebase-merge'))
+        if not rebase.is_dir(): raise ValueError('No supported paused rebase; do not repeat execution')
+        branch = (rebase / 'head-name').read_text().strip().removeprefix('refs/heads/')
+        old = (rebase / 'orig-head').read_text().strip()
+        if not any(b['branch'] == branch and b['head'] == old for b in r['snapshot']['checkpoint']['stack']): raise ValueError('Unrelated paused rebase')
+        onto = (rebase / 'onto').read_text().strip()
+        row = next(b for b in r['snapshot']['checkpoint']['stack'] if b['branch'] == branch)
+        if onto != text(repo, 'rev-parse', 'refs/heads/' + row['parent']): raise ValueError('Rebase target mismatch')
+        values = F['metadata'](repo)
+        selected = {r['snapshot']['checkpoint']['stack'][0]['branch']}
+        while True:
+            children = {name for name, m in values.items() if m['parentBranchName'] in selected}
+            if children <= selected: break
+            selected |= children
+        if selected != {b['branch'] for b in r['snapshot']['checkpoint']['stack']} or any(values[b['branch']]['parentBranchName'] != b['parent'] for b in r['snapshot']['checkpoint']['stack']):
+            raise ValueError('Stack topology drift during conflict')
+        if text(repo, 'ls-files', '--unmerged'): raise ValueError('Resolve conflicts before authorized continuation')
+        claim = d / ('continue-' + continuation + '.json')
+        seal(claim, {'branch': branch, 'orig_head': old, 'onto': onto, 'index': text(repo, 'write-tree')})
+        result_file = d / ('continued-' + continuation + '.json')
+        if result_file.exists(): return load(result_file)
+        # Caller request keys are claimed by the extension too. Existing claim
+        # without result is uncertain and must not cause a second continuation.
+        started = d / ('continue-started-' + continuation + '.json')
+        if started.exists(): raise ValueError('Continuation outcome uncertain; verify, never repeat')
+        seal(started, {'claim_sha256': digest(claim.read_bytes())})
+        args = ['stax', 'restack', '--continue', '--submit-after', 'no']
+    else:
+        if (d / 'executed.json').exists(): return load(d / 'executed.json')
+        if (d / 'execute-claim.json').exists(): raise ValueError('Execution outcome uncertain; verify, never repeat restack')
+        now = inspect(repo, r['base'])
+        if now['checkpoint']['stack'] != r['snapshot']['checkpoint']['stack'] or now['checkpoint']['head'] != r['snapshot']['checkpoint']['head'] or now['candidate']['dirty']:
+            raise ValueError('Stack drift after preservation')
+        seal(d / 'execute-claim.json', {'snapshot_sha256': digest(json.dumps(r['snapshot'], sort_keys=True).encode())})
+        args = ['stax', 'restack', '--all', '--yes', '--submit-after', 'no']
+        result_file = d / 'executed.json'
+    result = subprocess.run(args, cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, env=execution_env(d), timeout=300)
+    outcome = seal(result_file, {'args': args, 'exit': result.returncode, 'stdout': result.stdout.decode(errors='replace'), 'stderr': result.stderr.decode(errors='replace')})
+    if continuation and result.returncode == 0:
+        # Stax's --continue completes only the paused branch, not the saved
+        # original stack traversal. The suffix is a DISTINCT claimed action,
+        # never a retry of the original --all operation.
+        suffix_claim = d / ('suffix-claim-' + continuation + '.json')
+        if suffix_claim.exists(): raise ValueError('Suffix traversal already claimed; verify, never repeat')
+        seal(suffix_claim, {'after_branch': text(repo, 'branch', '--show-current'), 'after_head': text(repo, 'rev-parse', 'HEAD')})
+        suffix = subprocess.run(['stax', 'upstack', 'restack'], cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, env=execution_env(d), timeout=300)
+        seal(d / ('suffix-result-' + continuation + '.json'), {'exit': suffix.returncode, 'stdout': suffix.stdout.decode(errors='replace'), 'stderr': suffix.stderr.decode(errors='replace')})
+        if suffix.returncode != 0: raise ValueError('Suffix restack stopped; inspect its own claim and conflict evidence')
+        # Only return to the assigned phase after Stax finishes the suffix.
+        seal(d / ('checkout-claim-' + continuation + '.json'), {'branch': r['branch']})
+        checkout = subprocess.run(['stax', 'checkout', r['branch']], cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, env=execution_env(d), timeout=30)
+        seal(d / ('checkout-result-' + continuation + '.json'), {'exit': checkout.returncode, 'stdout': checkout.stdout.decode(errors='replace'), 'stderr': checkout.stderr.decode(errors='replace')})
+        if checkout.returncode != 0: raise ValueError('Return checkout stopped; retain reservation')
+    return outcome
+
+
+def patch_id(repo, commit):
+    diff = git(repo, 'show', '--pretty=format:', '--binary', '--no-ext-diff', '--no-textconv', commit, '--')
+    return git(repo, 'patch-id', '--stable', data=diff).decode().split(' ')[0].strip()
+
+
+def verify(d, r):
+    repo = verify_identity(r); verify_bundle(d)
+    if not (d / 'execute-claim.json').exists(): raise ValueError('No execution evidence')
+    now = inspect(repo, r['base'])
+    if now['candidate']['dirty']: raise ValueError('Dirty result before candidate restoration')
+    old = r['snapshot']['checkpoint']['stack']; new = now['checkpoint']['stack']
+    if [(b['branch'], b['parent']) for b in old] != [(b['branch'], b['parent']) for b in new]: raise ValueError('Stack topology changed')
+    if not all(b['includes_base'] and b['includes_parent'] and b['parent_revision'] == b['parent_head'] for b in new): raise ValueError('Partial restack or metadata drift')
+    edges = {}
+    journal = d / 'rewrite.jsonl'
+    if journal.exists():
+        for line in journal.read_text().splitlines():
+            event = json.loads(line)
+            if event['kind'] != 'rebase': raise ValueError('Unrelated rewrite operation')
+            for pair in event['pairs']:
+                a, b = pair.split()
+                text(repo, 'cat-file', '-e', a + '^{commit}'); text(repo, 'cat-file', '-e', b + '^{commit}')
+                if a in edges and edges[a] != b: raise ValueError('Ambiguous rewrite mapping')
+                edges[a] = b
+    def mapped(oid):
+        seen = set()
+        while oid in edges and edges[oid] != oid:
+            if oid in seen: raise ValueError('Mapping cycle')
+            seen.add(oid); oid = edges[oid]
+        return oid
+    mapping = {oid: mapped(oid) for oid in r['snapshot']['commits']}
+    # Every rewritten commit must be accounted for, one-to-one and ordered.
+    newcommits = now['commits']
+    if list(mapping.values()) != newcommits or len(set(mapping.values())) != len(mapping): raise ValueError('Partial/dropped/reordered/ambiguous commit mapping')
+    allowed_edges = set(mapping) | set(mapping.values())
+    if any(a not in allowed_edges or b not in allowed_edges for a, b in edges.items()): raise ValueError('Foreign rewrite evidence')
+    tips = {}
+    for before, after in zip(old, new):
+        expected = mapping.get(before['head'])
+        # Empty/shared phase tips map to their rewritten parent, not to a
+        # guessed unrelated commit with the same patch.
+        if expected is None and before['head'] == before['parent_revision']:
+            expected = tips.get(before['parent'], r['snapshot']['checkpoint']['base_head'])
+        if expected != after['head']: raise ValueError('Branch tip mapping mismatch')
+        tips[before['branch']] = after['head']
+    changed = [a for a, b in mapping.items() if patch_id(repo, a) != patch_id(repo, b)]
+    archive = d / 'rewritten.pack'
+    if not archive.exists():
+        objects = [now['checkpoint']['base_head']] + [b[k] for b in new for k in ('head', 'metadata_oid')]
+        packed = git(repo, 'pack-objects', '--stdout', '--revs', data=('\n'.join(objects) + '\n').encode())
+        with archive.open('xb') as stream:
+            os.chmod(archive, 0o600); stream.write(packed); stream.flush(); os.fsync(stream.fileno())
+    result = {'mapping': mapping, 'tips': tips, 'old_stack': old, 'new_stack': new, 'changed_patches': changed,
+              'rewritten_pack_sha256': digest(archive.read_bytes()),
+              'base_head': now['checkpoint']['base_head'], 'journal_sha256': digest(journal.read_bytes()) if journal.exists() else None,
+              'approval': False, 'revalidation_required': True}
+    seal(d / 'mapping.json', result)
+    seal(d / 'mapping-seal.json', {'sha256': digest((d / 'mapping.json').read_bytes())})
+    return result
+
+
+def restore(d, r):
+    repo = verify_identity(r); b = verify_bundle(d); mapping = load(d / 'mapping.json')
+    if text(repo, 'branch', '--show-current') != r['branch'] or text(repo, 'rev-parse', 'HEAD') != mapping['tips'][r['branch']]: raise ValueError('Assigned phase checkout drift before restoration')
+    for marker in ('rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'index.lock'):
+        if Path(text(repo, 'rev-parse', '--path-format=absolute', '--git-path', marker)).exists(): raise ValueError('Git operation during restoration')
+    if load(d / 'mapping-seal.json')['sha256'] != digest((d / 'mapping.json').read_bytes()) or mapping['rewritten_pack_sha256'] != digest((d / 'rewritten.pack').read_bytes()): raise ValueError('Mapping/archive seal changed')
+    if (d / 'restored.json').exists():
+        saved = load(d / 'restored.json')
+        if load(d / 'restored-seal.json')['sha256'] != digest((d / 'restored.json').read_bytes()): raise ValueError('Restoration seal changed')
+        if F['worktree_fingerprint'](repo) != saved['candidate']: raise ValueError('Candidate drift after restore')
+        return saved
+    if [(x['branch'], text(repo, 'rev-parse', 'refs/heads/' + x['branch'])) for x in mapping['new_stack']] != [(x['branch'], x['head']) for x in mapping['new_stack']]: raise ValueError('Ref drift before restore')
+    target = d / 'restore-target.json'
+    if not target.exists():
+        if text(repo, 'status', '--porcelain=v1', '--untracked-files=all'): raise ValueError('Dirty worktree before restore planning')
+        index = d / 'restore.index'; env = {'GIT_INDEX_FILE': str(index)}
+        git(repo, 'read-tree', 'HEAD', env=env)
+        for old, new, label in [(b['head'], b['index_tree'], 'index'), (b['index_tree'], b['work_tree'], 'work')]:
+            data = patch(repo, old, new)
+            if data: git(repo, 'apply', '--cached', '--3way', '--binary', '-', env=env, data=data)
+            tree = text(repo, 'write-tree', env=env)
+            if label == 'index': index_tree = tree
+        for u in b['untracked']:
+            path = Path(repo) / u['name']
+            currently_tracked = bool(text(repo, 'ls-tree', 'HEAD', '--', u['name']))
+            if ((path.exists() or path.is_symlink()) and not currently_tracked) or text(repo, 'ls-tree', tree, '--', u['name']): raise ValueError('Untracked restoration collision')
+            for parent in Path(u['name']).parents:
+                if str(parent) == '.': break
+                entry = text(repo, 'ls-tree', tree, '--', str(parent))
+                if entry and not entry.startswith('040000 '): raise ValueError('Untracked restoration has a non-directory tracked ancestor')
+                local = Path(repo) / parent
+                if local.is_symlink() or (local.exists() and not local.is_dir()): raise ValueError('Untracked restoration has an unsafe local ancestor')
+        seal(target, {'index_tree': index_tree, 'work_tree': tree, 'head': text(repo, 'rev-parse', 'HEAD')})
+    t = load(target)
+    if text(repo, 'rev-parse', 'HEAD') != t['head']: raise ValueError('HEAD drift during restoration')
+    if (d / 'restore-claim.json').exists():
+        # Never reapply patches or overwrite after uncertainty. Reconcile only
+        # if all intended bytes and staging are already present.
+        if not restored_matches(repo, t, b, d): raise ValueError('Interrupted restoration requires manual reconciliation against retained trees; no replay')
+    else:
+        safe_checkout(repo, t['work_tree'])
+        seal(d / 'restore-claim.json', t)
+        git(repo, 'read-tree', '--reset', '-u', t['work_tree'])
+        git(repo, 'read-tree', t['index_tree'])
+        for u in b['untracked']:
+            path = Path(repo) / u['name']; path.parent.mkdir(parents=True, exist_ok=True)
+            data = git(repo, 'cat-file', 'blob', u['blob'])
+            if digest(data) != u['sha256']: raise ValueError('Candidate blob changed')
+            if u['mode'] == '120000': path.symlink_to(os.fsdecode(data))
+            else:
+                with path.open('xb') as stream: stream.write(data)
+                path.chmod(0o755 if u['mode'] == '100755' else 0o644)
+        if not restored_matches(repo, t, b, d): raise ValueError('Restoration verification failed')
+    result = seal(d / 'restored.json', {'candidate': F['worktree_fingerprint'](repo), 'target': t, 'approval': False})
+    seal(d / 'restored-seal.json', {'sha256': digest((d / 'restored.json').read_bytes())})
+    return result
+
+
+def restored_matches(repo, t, b, d):
+    if text(repo, 'write-tree') != t['index_tree']: return False
+    env = {'GIT_INDEX_FILE': str(d / 'verify.index')}
+    git(repo, 'read-tree', t['work_tree'], env=env)
+    git(repo, 'add', '-u', '--', env=env)
+    if text(repo, 'write-tree', env=env) != t['work_tree']: return False
+    actual = set(filter(None, git(repo, 'ls-files', '--others', '--exclude-standard', '-z').split(b'\0')))
+    if actual != {os.fsencode(u['name']) for u in b['untracked']}: return False
+    for u in b['untracked']:
+        path = Path(repo) / u['name']
+        if not (path.exists() or path.is_symlink()): return False
+        data = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        mode = '120000' if path.is_symlink() else ('100755' if path.stat().st_mode & 0o111 else '100644')
+        if digest(data) != u['sha256'] or mode != u['mode']: return False
+    return True
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('action', choices=['inspect', 'preserve', 'clean', 'execute', 'continue', 'verify', 'restore'])
+    p.add_argument('--repo'); p.add_argument('--base', default='main'); p.add_argument('--operation'); p.add_argument('--continuation')
+    a = p.parse_args()
+    try:
+        if a.action == 'inspect': result = inspect(str(Path(a.repo).resolve()), a.base)
+        else:
+            d = Path(a.operation).resolve(); r = load(d / 'record.json')
+            if load(d / 'seal.json')['sha256'] != digest((d / 'record.json').read_bytes()): raise ValueError('Operation seal changed')
+            reserved = load(d / 'reserved.json')
+            if reserved['id'] != r['id'] or reserved['worker_epoch'] != r['worker']['epoch']: raise ValueError('Worker reservation required')
+            result = {'preserve': prepare, 'clean': clean, 'execute': execute, 'verify': verify, 'restore': restore,
+                      'continue': lambda d, r: execute(d, r, a.continuation)}[a.action](d, r)
+        print(json.dumps({'ok': True, 'result': result}))
+    except Exception as e:
+        print(json.dumps({'ok': False, 'error': str(e)})); return 1
+    return 0
+
+if __name__ == '__main__': sys.exit(main())

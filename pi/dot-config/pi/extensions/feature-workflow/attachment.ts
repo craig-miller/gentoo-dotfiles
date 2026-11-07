@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { atomicJSON, herdrInstance, matchesDestination, readJSON, sameInstance, stateRoot } from "./protocol.ts";
 import { phaseBranch, reportingPhaseReady } from "./phase-record.ts";
+import { assertNotRestacking, validateAdoption } from "./restack-state.ts";
 
 export const reportingDirectory = (session: string) => join(stateRoot(), "reporting", createHash("sha256").update(session).digest("hex"));
 export const hasAttachment = (session: string) => existsSync(join(reportingDirectory(session), "current.json"));
@@ -23,6 +24,8 @@ export function liveRegistration(expected: any) {
 
 export function readyAttachment(path: string) {
   const request = readJSON(path), directory = dirname(path);
+  assertNotRestacking(request.worker.session);
+  validateAdoption(request);
   currentAttachment(request);
   const ready = readJSON(join(directory, "ready.json"));
   if (!correlated(ready, request) || ready.status !== "ready" || ready.worker_epoch !== request.worker.epoch ||
@@ -31,7 +34,7 @@ export function readyAttachment(path: string) {
     liveRegistration(request[role]);
     const ack = readJSON(join(directory, `active-${role}.json`));
     if (!correlated(ack, request) || ack.status !== "active" || ack.role !== role || ack.epoch !== request[role].epoch ||
-        ack.worker_epoch !== request.worker.epoch || ack.coordinator_epoch !== request.coordinator.epoch) throw new Error("Endpoint agreement missing");
+        ack.worker_epoch !== request.worker.epoch || ack.coordinator_epoch !== request.coordinator.epoch || ack.adoption_sha256 !== request.adoption_sha256) throw new Error("Endpoint agreement missing");
   }
   return request;
 }
@@ -97,7 +100,7 @@ export async function pollAttachments(pi: ExtensionAPI, ctx: ExtensionContext, m
       continue;
     }
     const ack = { revision: request.revision, feature: request.feature, epoch: mine.epoch, role,
-      worker_epoch: request.worker.epoch, coordinator_epoch: request.coordinator.epoch, busy: !ctx.isIdle() || ctx.hasPendingMessages() };
+      worker_epoch: request.worker.epoch, coordinator_epoch: request.coordinator.epoch, adoption_sha256: request.adoption_sha256, busy: !ctx.isIdle() || ctx.hasPendingMessages() };
     try {
       await validateRequest(pi, ctx, mine, request, role);
       if (!stillCurrent()) return;
@@ -106,7 +109,7 @@ export async function pollAttachments(pi: ExtensionAPI, ctx: ExtensionContext, m
         for (const endpoint of ["worker", "coordinator"]) {
           const prepared = readJSON(join(directory, `prepared-${endpoint}.json`));
           if (!correlated(prepared, request) || prepared.status !== "prepared" || prepared.epoch !== request[endpoint].epoch ||
-              prepared.worker_epoch !== request.worker.epoch || prepared.coordinator_epoch !== request.coordinator.epoch) throw new Error("Prepare agreement missing");
+              prepared.worker_epoch !== request.worker.epoch || prepared.coordinator_epoch !== request.coordinator.epoch || prepared.adoption_sha256 !== request.adoption_sha256) throw new Error("Prepare agreement missing");
         }
       }
       writeFileSync(claim, JSON.stringify(ack), { flag: "wx", mode: 0o600 });

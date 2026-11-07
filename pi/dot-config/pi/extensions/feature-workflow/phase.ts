@@ -7,6 +7,8 @@ import { liveRegistration, readyAttachment, reportingDirectory, validateRequest,
 import { digest, phaseBranch, phaseDirectory, phaseRecord } from "./phase-record.ts";
 import { contextObservation, evaluateContext } from "./context-policy.ts";
 import { activeFollowup } from "./followup.ts";
+import { controlRestack } from "./restack.ts";
+import { assertNotRestacking, restackReserved } from "./restack-state.ts";
 
 const ceiling = "Only the explicit next-phase scope is authorized. Planning is not implementation. No implicit commit, integration, release, push, cleanup, installation, live configuration or live app/provider input. Release the complete feature, not an intermediate phase. Agent status is never human approval. Preserve transcripts and checkpoints.";
 const immutable = (path: string, data: unknown) => writeFileSync(path, JSON.stringify(data, null, 2) + "\n", { flag: "wx", mode: 0o600 });
@@ -176,6 +178,8 @@ function createBinding(record: any) {
   const path = join(directory, "request.json");
   const request = { version: 1, revision, feature: record.feature, phase: record.id, receipt: record.receipt, receipt_sha256: record.receipt_sha256,
     common: record.common, cwd: record.cwd, branch: record.nextBranch, worker: record.worker, coordinator: record.coordinator,
+    adoption: readJSON(record.previousRelationship).adoption,
+    adoption_sha256: readJSON(record.previousRelationship).adoption_sha256,
     previous: { revision: record.previousRevision, request: record.previousRelationship }, scope: "Reporting for the authorized phase only. " + ceiling };
   immutable(path, request);
   save(record, "binding", { path, revision });
@@ -322,6 +326,7 @@ export async function pollPhases(pi: ExtensionAPI, ctx: ExtensionContext, mine: 
 }
 
 export function phaseReserved(session: string): boolean {
+  if (restackReserved(session)) return true;
   if (!existsSync(pointerPath(session))) return false;
   const record = phaseRecord(readJSON(pointerPath(session)).id);
   return has(record, "reserved") && !has(record, "delivered");
@@ -363,6 +368,7 @@ function sameSessionEndpoint(a: any, b: any) {
 
 export async function renewPhase(pi: ExtensionAPI, ctx: ExtensionContext, mine: any, input: any) {
   const record = phaseRecord(input.id); current(record);
+  assertNotRestacking(record.worker.session);
   if (!has(record, "delivered")) throw new Error("Partial phase cannot be renewed; retain state and recover with the original epochs");
   if (!sameSessionEndpoint(mine, record.coordinator)) throw new Error("Renewal requires the same coordinator session/pane/worktree; successor binding unsupported");
   if (!/^[a-f0-9-]{36}$/.test(input.workerEpoch || "")) throw new Error("Explicit current worker epoch required");
@@ -409,23 +415,23 @@ export async function pollRenewals(pi: ExtensionAPI, ctx: ExtensionContext, mine
 }
 
 export function installPhaseTool(pi: ExtensionAPI, registration: () => any) {
-  const act = async (input: any, ctx: ExtensionContext) => input.action === "status" ? phaseStatus(input.id) :
+  const act = async (input: any, ctx: ExtensionContext) => String(input.action).startsWith("restack-") ? controlRestack(pi, ctx, registration(), input) : input.action === "status" ? phaseStatus(input.id) :
     input.action === "recover" ? recoverPhase(pi, ctx, registration(), input) : input.action === "renew" ? renewPhase(pi, ctx, registration(), input) :
     input.action === "inspect" ? inspectPhaseContext(pi, ctx, registration(), input) : input.action === "start" ? startPhase(pi, ctx, registration(), input) : Promise.reject(new Error("Unknown phase action"));
   pi.registerCommand("feature-phase", {
-    description: "Same-session phase transition: /feature-phase JSON (inspect/start/status/recover/renew); explicit authorization and context assessment required",
+    description: "Same-session phases and phased-stack restack/adoption: /feature-phase JSON; explicit bounded authorization required",
     handler: async (args, ctx) => {
       try { const result = await act(JSON.parse(args), ctx); pi.sendMessage({ customType: "feature-phase-result", content: JSON.stringify(result, null, 2).slice(0, 16000), display: true }, { triggerTurn: false }); }
       catch (error) { ctx.ui.notify(String(error), "error"); }
     },
   });
   pi.registerTool({ name: "feature_phase", label: "Feature phase", executionMode: "sequential",
-    promptSnippet: "Advance an authorized feature phase in its existing worktree/session; inspect status or explicitly recover/renew reporting",
-    promptGuidelines: ["Use feature_phase only with explicit user-approved next-phase scope at a clean committed checkpoint. Inspect context usage and explicitly assess continuity/debugging history; 70% prompts evaluation, never automatic compaction, and unknown is not zero. Preserve verbatim brief and authorization evidence separately from synthesized context. Reuse the same requestKey on uncertainty; never replay or infer commit/release/live-input permission from status."],
-    description: "Request or inspect a same-session feature phase transition. Requires ready reporting, clean committed checkpoint and explicit user authorization. Returns durable ID promptly; never releases the feature. Output capped at 16 KiB.",
+    promptSnippet: "Advance an authorized feature phase, or inspect/coordinate explicit phased-stack restack adoption in its existing worktree/session",
+    promptGuidelines: ["Use feature_phase start only with explicit user-approved next-phase scope at a clean committed checkpoint. Restack actions are separate: inspect first, then pin inspectionFile/inspectionHash and verbatim authorization for preservation, cleaning, Stax restacking and restoration; adoption requires separate authorization after inspecting mapping/conflict evidence. Do not run recovery on an active feature merely because synthetic tests pass. Inspect context usage and explicitly assess continuity/debugging history; 70% prompts evaluation, never automatic compaction, and unknown is not zero. Preserve verbatim brief and authorization evidence separately from synthesized context. Reuse the same requestKey on uncertainty; never replay or infer commit/release/live-input permission from status."],
+    description: "Same-session phase transitions or explicitly authorized phased-stack restack/adoption. Restack actions: inspect/start/status/adopt/continue/recover/renew prefixed restack-. Inspect is read-only; start requires exact inspectionFile/inspectionHash, stable requestKey and authorizationFile. Adopt/recover/continue/renew require id, expectedStage, stable requestKey and authorizationFile; renew also pins workerEpoch. Never grants acceptance or release authority. Output capped at 16 KiB.",
     parameters: { type: "object", additionalProperties: false, required: ["action"], properties: {
-      action: { type: "string", enum: ["inspect", "start", "status", "recover", "renew"] },
-      ...Object.fromEntries(["id", "resolution", "workerEpoch", "expectedStage", "requestKey", "relationship", "expectedRevision", "expectedHead", "expectedParent", "nextBranch", "handoffFile", "briefFile", "authorizationFile", "contextFile"].map(key => [key, { type: "string" }])),
+      action: { type: "string", enum: ["inspect", "start", "status", "recover", "renew", "restack-inspect", "restack-start", "restack-status", "restack-adopt", "restack-continue", "restack-recover", "restack-renew", "restack-cancel"] },
+      ...Object.fromEntries(["id", "resolution", "workerEpoch", "expectedStage", "requestKey", "relationship", "expectedRevision", "expectedHead", "expectedParent", "nextBranch", "handoffFile", "briefFile", "authorizationFile", "contextFile", "inspectionFile", "inspectionHash"].map(key => [key, { type: "string" }])),
       sessionMode: { type: "string", enum: ["keep", "compact"] },
       contextEvaluation: { type: "object", additionalProperties: false, required: ["usagePercent", "leaf", "continuity", "debuggingHistory", "rationale"], properties: {
         usagePercent: { type: ["number", "null"], minimum: 0 }, leaf: { type: ["string", "null"] },

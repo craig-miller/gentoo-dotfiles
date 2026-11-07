@@ -6,6 +6,7 @@ import { atomicJSON, stateRoot, readJSON, matchesDestination, herdrInstance, sam
 
 import { hasAttachment, pollAttachments, reportAttached, validBoundMessage, validateRequest } from "./attachment.ts";
 import { pollPhases, pollRenewals, phaseReserved, acknowledgePendingPhase } from "./phase.ts";
+import { pollRestacks } from "./restack.ts";
 import { contextObservation } from "./context-policy.ts";
 import { enrollmentIntent, explicitEnrollment, verifyEnrollment, enrollmentType } from "./enrollment.ts";
 import { pollFollowups, observeFollowup, settleFollowup } from "./followup.ts";
@@ -62,7 +63,7 @@ export function installCoordination(pi: ExtensionAPI) {
     if (gen !== generation) throw new Error("Session changed during feature activation");
     if (!intent.persisted) pi.appendEntry(enrollmentType, enrollment);
     const mine = { ...enrollment, version: 2, enrollment,
-      capabilities: ["coordination-opt-in-v1", "reporting-attach-v1", "phase-transition-v1", "followup-v1", "worker-messaging-v1"], epoch: randomUUID(),
+      capabilities: ["coordination-opt-in-v1", "reporting-attach-v1", "phase-transition-v1", "phase-restack-v1", "followup-v1", "worker-messaging-v1"], epoch: randomUUID(),
       provider: ctx.model?.provider, model: ctx.model?.id, live: true };
     const root = stateRoot();
     mkdirSync(join(root, "sessions"), { recursive: true, mode: 0o700 });
@@ -81,6 +82,7 @@ export function installCoordination(pi: ExtensionAPI) {
         if (!sameInstance(mine.instance, herdrInstance())) { stop(); return; }
         heartbeat();
         await pollAttachments(pi, ctx, mine, () => generation === gen && registration === mine);
+        await pollRestacks(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
         await pollPhases(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
         await pollRenewals(pi, ctx, mine, () => generation === gen && registration === mine);
         await pollFollowups(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);

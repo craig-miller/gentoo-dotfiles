@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { readJSON, stateRoot } from "./protocol.ts";
+import { assertNotRestacking, validateAdoption } from "./restack-state.ts";
 
 export const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 export const phaseDirectory = (id: string) => {
@@ -19,6 +20,8 @@ export function phaseRecord(id: string) {
 }
 
 export function reportingPhaseReady(request: any) {
+  assertNotRestacking(request.worker.session);
+  validateAdoption(request);
   const pointer = join(stateRoot(), "reporting", digest(request.worker.session), "phase-current.json");
   if (!existsSync(pointer)) return;
   const id = readJSON(pointer).id;
@@ -28,6 +31,7 @@ export function reportingPhaseReady(request: any) {
 // This is an explicit, separately sealed branch authorization, not a relaxed
 // comparison against the launch receipt. Ordinary attachments still use it verbatim.
 export function phaseBranch(request: any, receipt: any): string {
+  validateAdoption(request, true); // Proposed bindings may prepare, not report, before adoption completes.
   if (!request.phase) return receipt.branch;
   const pointer = readJSON(join(stateRoot(), "reporting", digest(request.worker.session), "phase-current.json"));
   if (pointer.id !== request.phase) throw new Error("Phase authorization superseded");

@@ -179,9 +179,53 @@ def checkpoint(repo, base, branch=None):
             'upstream': {'ref': upstream or None, 'head': upstream_head, 'remote': remote or None, 'url': url, 'merge_ref': merge_ref or None, 'relation': relation}}
 
 
+def adoption_checkpoint(repo, common):
+    # Only explicit, durably bound operations in this exact worktree count.
+    root = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'feature-workflow'
+    operations = []
+    for pointer in (root / 'reporting').glob('*/restack-current.json'):
+        ident = json.loads(pointer.read_text())['id']
+        if not re.fullmatch(r'[a-f0-9-]{36}', ident):
+            raise PreflightError('Invalid restack operation pointer')
+        directory = root / 'restacks' / ident
+        data = (directory / 'record.json').read_bytes(); record = json.loads(data)
+        if record.get('cwd') != repo or record.get('common') != common:
+            continue
+        if json.loads((directory / 'seal.json').read_text())['sha256'] != hashlib.sha256(data).hexdigest():
+            raise PreflightError('Restack operation seal changed')
+        if (directory / 'cancelled.json').exists():
+            continue  # Explicit pre-clean cancellation; no adoption took place.
+        completed = directory / 'completed.json'
+        if completed.exists():
+            adopted_bytes = (directory / 'adoption.json').read_bytes()
+            adopted = json.loads(adopted_bytes)
+            done = json.loads(completed.read_text())
+            if (done.get('id') != ident or done.get('adoption_sha256') != hashlib.sha256(adopted_bytes).hexdigest() or
+                    json.loads((directory / 'adoption-seal.json').read_text())['sha256'] != hashlib.sha256(adopted_bytes).hexdigest() or
+                    adopted.get('record_sha256') != hashlib.sha256(data).hexdigest()):
+                raise PreflightError('Restack adoption/completion evidence changed')
+            for name in ('mapping', 'restored'):
+                if adopted.get(name + '_sha256') != hashlib.sha256((directory / (name + '.json')).read_bytes()).hexdigest():
+                    raise PreflightError('Restack ' + name + ' evidence changed')
+            for original in record['seals']:
+                if hashlib.sha256(Path(original['path']).read_bytes()).hexdigest() != original['sha256']:
+                    raise PreflightError('Original phase evidence changed')
+        operations.append({'id': ident, 'completed': completed.exists(),
+                           'evidence': hashlib.sha256(completed.read_bytes()).hexdigest() if completed.exists() else None})
+    return sorted(operations, key=lambda x: x['id'])
+
+
+def gated_checkpoint(repo, base, branch):
+    value = checkpoint(repo, base, branch)
+    value['restack_adoptions'] = adoption_checkpoint(value['repo'], value['common'])
+    return value
+
+
 def evaluate(repo, base='main', branch=None, stage='inspect', sync_evidence=None, accepted=None):
-    before = checkpoint(repo, base, branch)
+    before = gated_checkpoint(repo, base, branch)
     blockers = []
+    if any(not a['completed'] for a in before['restack_adoptions']):
+        blockers.append('Restack reservation/adoption is incomplete; acceptance and review remain blocked')
     stale = [b['branch'] for b in before['stack'] if not b['includes_base'] or not b['includes_parent']]
     if stale:
         blockers.append('Stack stale: coordinate bottom-up restack and rerun checks; no mutation authorized here')
@@ -214,7 +258,7 @@ def evaluate(repo, base='main', branch=None, stage='inspect', sync_evidence=None
             previous = json.loads(Path(accepted).read_text())
             if not isinstance(previous, dict) or previous.get('version') != 1 or previous.get('stage') != 'live' or previous.get('gate') != 'ready' or previous.get('checkpoint') != before:
                 blockers.append('Checkpoint/base changed since acceptance: rerun automated and affected live checks before review')
-    after = checkpoint(repo, base, branch)
+    after = gated_checkpoint(repo, base, branch)
     if after != before:
         blockers.append('Identity/refs/content drifted during preflight; inspect and retry read-only')
     return {'version': 1, 'stage': stage, 'gate': 'blocked' if blockers else ('local-only' if stage == 'inspect' else 'ready'),

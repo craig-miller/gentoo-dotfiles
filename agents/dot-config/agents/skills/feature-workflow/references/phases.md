@@ -82,6 +82,10 @@ After same-session reload, explicitly renew reporting from the same coordinator 
 
 Renewal is metadata-only and can acknowledge busy endpoints. It does not require a clean tree or original checkpoint HEAD: legitimate phase progress must survive. The exact active phase branch must still match. It never resends the assignment or a saved report. Inspect the returned revision directory's `ready.json` and both active acknowledgements before relying on reporting. A partial renewal may be explicitly superseded using its exact current revision; never blindly retry the old revision. Different sessions, panes or repositories require a separate capability, not renewal.
 
+## Restacking completed phased stacks
+
+An advanced integration base can require rewriting earlier checkpoint hashes. Ordinary `renew` is reporting-only, not checkpoint adoption. Use the bounded [`restack-*` actions](restack.md): inspect, authorize preservation/restack/restoration, verify the mapping, then separately authorize append-only adoption and two-endpoint reporting activation. Dirty candidate work does not require an unapproved phase commit. Keep original phase/review records intact; adoption requires revalidation and does not extend approval.
+
 ## Lifetime and permissions
 
 Same-session keep/compact only. `/new`, successor-session binding and automatic transcript retention/deletion are not implemented. Preserve the complete feature workspace and all reviewed phase checkpoints until the separately approved full-feature release. Phase briefs, compaction, recovery and reporting renewal do not grant commit, integration, installation, push, live-input or cleanup permission.
