@@ -7,6 +7,7 @@ import { atomicJSON, stateRoot, readJSON, matchesDestination, herdrInstance, sam
 import { hasAttachment, pollAttachments, reportAttached, validBoundMessage, validateRequest } from "./attachment.ts";
 import { pollPhases, pollRenewals, phaseReserved, acknowledgePendingPhase } from "./phase.ts";
 import { pollRestacks } from "./restack.ts";
+import { pollOperationReports, deliverOperationReport } from "./operation-reports.ts";
 import { contextObservation } from "./context-policy.ts";
 import { enrollmentIntent, explicitEnrollment, verifyEnrollment, enrollmentType } from "./enrollment.ts";
 import { pollFollowups, observeFollowup, settleFollowup } from "./followup.ts";
@@ -63,7 +64,7 @@ export function installCoordination(pi: ExtensionAPI) {
     if (gen !== generation) throw new Error("Session changed during feature activation");
     if (!intent.persisted) pi.appendEntry(enrollmentType, enrollment);
     const mine = { ...enrollment, version: 2, enrollment,
-      capabilities: ["coordination-opt-in-v1", "reporting-attach-v1", "phase-transition-v1", "phase-restack-v1", "followup-v1", "worker-messaging-v1"], epoch: randomUUID(),
+      capabilities: ["coordination-opt-in-v1", "reporting-attach-v1", "phase-transition-v1", "phase-restack-v1", "operation-report-v1", "followup-v1", "worker-messaging-v1"], epoch: randomUUID(),
       provider: ctx.model?.provider, model: ctx.model?.id, live: true };
     const root = stateRoot();
     mkdirSync(join(root, "sessions"), { recursive: true, mode: 0o700 });
@@ -82,15 +83,24 @@ export function installCoordination(pi: ExtensionAPI) {
         if (!sameInstance(mine.instance, herdrInstance())) { stop(); return; }
         heartbeat();
         await pollAttachments(pi, ctx, mine, () => generation === gen && registration === mine);
-        await pollRestacks(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
+        try { await pollRestacks(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI); }
+        finally { await pollOperationReports(pi, ctx, mine, () => generation === gen && registration === mine); }
         await pollPhases(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
         await pollRenewals(pi, ctx, mine, () => generation === gen && registration === mine);
         await pollFollowups(pi, ctx, mine, () => generation === gen && registration === mine, () => blockedUI);
         if (generation !== gen || reserved()) return;
         for (const file of readdirSync(inbox).filter(f => f.endsWith(".request.json")).sort()) {
           const base = join(inbox, file.slice(0, -13)), ack = base + ".ack.json", claim = base + ".claim.json";
-          if (existsSync(claim)) continue; // Includes uncertain delivery; never replay.
           const message = readJSON(join(inbox, file));
+          if (message.kind === "operation-status") {
+            try { await deliverOperationReport(pi, ctx, mine, message, base, () => generation === gen && registration === mine, () => blockedUI); }
+            catch (error) {
+              atomicJSON(base + ".ack.json", { id: message.id, epoch: mine.epoch, status: "rejected", error: String(error) });
+              ctx.ui.setStatus("feature-operation-report", `Operation report rejected; inspect retained evidence: ${error}`);
+            }
+            continue;
+          }
+          if (existsSync(claim)) continue; // Includes uncertain generic delivery; never replay.
           const reply = (status: string, error?: string) => atomicJSON(ack, { id: message.id, feature: message.feature, epoch: mine.epoch, status, error });
           if (!matchesDestination(message, mine) || ctx.sessionManager.getSessionId() !== mine.session) {
             writeFileSync(claim, "rejected", { flag: "wx", mode: 0o600 }); reply("rejected", "Stale destination"); continue;

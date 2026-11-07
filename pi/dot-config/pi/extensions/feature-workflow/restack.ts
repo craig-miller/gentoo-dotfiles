@@ -6,6 +6,7 @@ import { atomicJSON, matchesDestination, readJSON, sameInstance, stateRoot } fro
 import { liveRegistration, readyAttachment, reportingDirectory, validateRequest, verifyEndpoint } from "./attachment.ts";
 import { phaseDirectory, phaseRecord } from "./phase-record.ts";
 import { activeFollowup } from "./followup.ts";
+import { operationReportStatus, recoverOperationReports } from "./operation-reports.ts";
 import { adoption, assertNotRestacking, currentRestack, effectiveCheckpoint, hash, restackDirectory, restackPointer, restackRecord } from "./restack-state.ts";
 
 const immutable = (path: string, value: any) => writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { flag: "wx", mode: 0o600 });
@@ -75,7 +76,7 @@ export function restackStatus(id: string) {
   const r = restackRecord(id), dir = restackDirectory(id);
   const stages = ["completed", "cancelled", "binding", "adoption", "restored", "mapping", "executed", "execute-claim", "cleaned", "clean-claim", "preserved", "reserved"];
   const stage = stages.find(s => has(r, s)) || "requested";
-  return { id, stage, directory: dir, stopped: stopped(r) ? readJSON(at(r, "stopped")) : undefined,
+  return { id, stage, directory: dir, reports: operationReportStatus(id), stopped: stopped(r) ? readJSON(at(r, "stopped")) : undefined,
     events: readdirSync(dir).filter(n => /^(failure|recovery|continue|renew)-/.test(n)),
     note: "Status is not acceptance or approval. Retain evidence/backups. Never replay an uncertain Git operation or assignment." };
 }
@@ -209,6 +210,7 @@ function publishBinding(r: any, endpointsNow: any) {
   for (const role of ["worker", "coordinator"]) immutable(join(stateRoot(), "inbox", request[role].epoch, revision + ".binding.json"), { revision, request: path, target: request[role], role });
 }
 export async function controlRestack(pi: ExtensionAPI, ctx: ExtensionContext, mine: any, input: any): Promise<any> {
+  if (input.action === "restack-report-recover") return recoverOperationReports(pi, ctx, mine, input);
   if (["restack-inspect", "restack-start", "restack-status"].includes(input.action)) return controlRestackLocked(pi, ctx, mine, input);
   const r = restackRecord(input.id), lock = join(reportingDirectory(r.worker.session), "control.lock");
   if (!same(mine, r.coordinator)) throw Error("Same coordinator endpoint required");

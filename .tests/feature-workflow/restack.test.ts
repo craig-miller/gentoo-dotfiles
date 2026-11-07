@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
-import { writeFileSync, readFileSync, existsSync, unlinkSync, chmodSync, symlinkSync, readdirSync } from "node:fs";
+import { appendFileSync, writeFileSync, readFileSync, existsSync, unlinkSync, chmodSync, symlinkSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fixture } from "./phase.test.ts";
+import { pollOperationReports, deliverOperationReport, operationReportStatus } from "../../pi/dot-config/pi/extensions/feature-workflow/operation-reports.ts";
 import { startPhase } from "../../pi/dot-config/pi/extensions/feature-workflow/phase.ts";
 import { inspectRestack, startRestack, pollRestacks, controlRestack, restackStatus } from "../../pi/dot-config/pi/extensions/feature-workflow/restack.ts";
 import { restackDirectory, restackReserved, effectiveCheckpoint } from "../../pi/dot-config/pi/extensions/feature-workflow/restack-state.ts";
@@ -258,3 +259,28 @@ test("interrupted cleaning/restoration and mismatched endpoint agreement remain 
     expect(restackReserved(f.worker.session)).toBe(true);
   });
 }, 25_000);
+
+test("actual asynchronous Stax lifecycle wakes coordinator at restored and completion, not at authorized intermediate steps", async () => {
+  await restackFixture(async f => {
+    f.coordinator.capabilities.push("operation-report-v1"); f.publish();
+    const { r } = await f.start(), sent: any[] = [];
+    const pi = { ...f.pi, sendMessage: (message: any, options: any) => {
+      sent.push({ message, options });
+      appendFileSync(f.coordinator.session_file, JSON.stringify({ type: "custom_message", id: "report-" + sent.length, ...message }) + "\n");
+    } };
+    const reports = async () => {
+      f.publish(); await pollOperationReports(pi, f.context(f.coordinator), f.coordinator, () => true);
+      const { stateRoot } = await import("../../pi/dot-config/pi/extensions/feature-workflow/protocol.ts");
+      const directory = join(stateRoot(), "inbox", f.coordinator.epoch);
+      for (const name of readdirSync(directory).filter(n => n.startsWith("operation-") && n.endsWith(".request.json")))
+        await deliverOperationReport(pi, f.context(f.coordinator), f.coordinator, readJSON(join(directory, name)), join(directory, name.slice(0, -13)), () => true, () => false);
+    };
+    await f.ticks(4); await reports(); expect(sent).toHaveLength(0);
+    await f.ticks(); await reports(); expect(sent).toHaveLength(1);
+    expect(sent[0].message.content).toContain("awaiting-adoption"); expect(sent[0].options.triggerTurn).toBe(true);
+    expect(operationReportStatus(r.id)[0].state).toBe("persisted");
+    await f.control(r.id, "restack-adopt"); await f.ticks(); await reports();
+    expect(sent).toHaveLength(2); expect(sent[1].message.content).toContain("adoption-completed");
+    await reports(); expect(sent).toHaveLength(2);
+  });
+}, 15_000);

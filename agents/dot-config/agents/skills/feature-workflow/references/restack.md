@@ -38,7 +38,7 @@ The worker advances bounded inbox steps:
 {"action":"restack-status","id":"OPERATION_ID"}
 ```
 
-Inspect `mapping.json`, `restored.json`, execution logs and retained stop/recovery evidence. `restored` means ready to discuss adoption, not completed or accepted. Status calls do not promise automatic coordinator notifications. Do not run a long model-turn polling loop.
+Inspect `mapping.json`, `restored.json`, execution logs and retained stop/recovery evidence. `restored` means ready to discuss adoption, not completed or accepted. With `operation-report-v1` loaded, durable operation-result events wake the coordinator at awaiting-adoption, blocked/failed and adoption-completed boundaries through the existing coordinator inbox. Already-authorized intermediate steps continue quietly; the coordinator asks Craig only for missing approval, decisions or recovery. Status includes separate report-delivery state. See [operation results and delivery recovery](operation-reports.md); do not run a long model-turn polling loop.
 
 ## Explicit adoption
 

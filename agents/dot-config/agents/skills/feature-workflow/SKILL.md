@@ -106,6 +106,8 @@ Verify and record routine successful compaction, branch/reporting transitions an
 
 Proactively surface blockers, failures, decisions requiring Craig, readiness for coordinated live testing or human review, and completion at the correct phase/feature boundary. Worker reports and tool status are evidence, never human approval. A successful phase transition is not implementation completion; a completed phase is not whole-feature completion.
 
+Restack timer results use [durable operation-result reports](references/operation-reports.md) to wake the coordinator at approval/recovery boundaries and completion, including while the worker is reserved or disconnected. Continue authorized intermediate work quietly; a result report is not an instruction to interrupt Craig after every success. Report delivery/persistence is separate from operation completion and human approval. Repairing notification delivery must never replay Git, assignments or execution bindings.
+
 Apply this policy to reports received through the verified worker/reporting connection. Do not promise autonomous polling, future notifications or delivery guarantees that the installed tooling cannot provide. Report a broken or unavailable reporting route as a blocker rather than silently treating it as healthy. Preserve actionable findings and pending decisions in the durable handoff; don't interrupt a busy worker merely to announce routine progress.
 
 ## Results and recovery
